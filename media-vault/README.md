@@ -2,7 +2,7 @@
 
 A mobile-first static site for four or fewer invited users. Media never goes through GitHub Pages or a paid backend: each device fetches encrypted 4 MiB chunks from a private Google Drive folder, decrypts in memory and plays locally.
 
-**Current state:** Complete source and UI are committed under \`media-vault/\`. The Google OAuth Web Client ID is **not yet configured**, so sign-in cannot work until the owner performs Google Cloud Console setup below. Live Google Drive playback has not yet been tested. Do not claim a completed production deployment before that setup and device tests.
+**Current state:** Complete source and UI are committed under `media-vault/`. The Google OAuth Web Client ID is **not yet configured**, so sign-in cannot work until the owner performs Google Cloud Console setup below. Live Google Drive playback has not yet been tested. Do not claim a completed production deployment before that setup and device tests.
 
 ## Features
 
@@ -17,28 +17,28 @@ A mobile-first static site for four or fewer invited users. Media never goes thr
 ## Required one-time setup (owner)
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) in the **intended owner Google account**, create/select a Google Cloud project and enable **Google Drive API**.
-2. Under **Google Auth Platform**, configure the OAuth consent screen. Select **External / Testing** for a small personal group, and add the owner plus the 3–4 friends as test users. Request the scopes needed for the web app: \`openid\`, \`email\`, \`profile\`, \`https://www.googleapis.com/auth/drive\` for the administrator, and \`https://www.googleapis.com/auth/drive.readonly\` for readers. Google may classify these as sensitive/restricted and require verification for broader public distribution.
-3. Under **Clients**, create an **OAuth 2.0 Client ID → Web application**. In Authorized JavaScript origins add the real origin hosting the site (typically \`https://onikri.github.io\`, **without a path**). For local testing add \`http://localhost:8080\`. Popup token flow does not need a client secret.
-4. Edit **\`media-vault/config.js\`** and replace the \`googleClientId\` placeholder with the public Web Client ID. NEVER paste a client secret, Drive token or library password into GitHub.
-5. Open GitHub repository **Settings → Pages** and make sure Pages deploys from the \`main\` branch and \`/(root)\` (or an equivalent configured deployment). This repository was already in use; the media site only adds the isolated \`media-vault/\` directory. The expected project-pages URL, **if Pages is enabled**, is \`https://onikri.github.io/hots_tank.github.io/media-vault/\`. Confirm the actual published URL before using it; only the GitHub repository is confirmed as written.
+2. Under **Google Auth Platform**, configure the OAuth consent screen. Select **External / Testing** for a small personal group, and add the owner plus the 3–4 friends as test users. Request the scopes needed for the web app: `openid`, `email`, `profile`, `https://www.googleapis.com/auth/drive` for the administrator, and `https://www.googleapis.com/auth/drive.readonly` for readers. Google may classify these as sensitive/restricted and require verification for broader public distribution.
+3. Under **Clients**, create an **OAuth 2.0 Client ID → Web application**. In Authorized JavaScript origins add the real origin hosting the site (typically `https://onikri.github.io`, **without a path**). For local testing add `http://localhost:8080`. Popup token flow does not need a client secret.
+4. Edit **`media-vault/config.js`** and replace the `googleClientId` placeholder with the public Web Client ID. NEVER paste a client secret, Drive token or library password into GitHub.
+5. Open GitHub repository **Settings → Pages** and make sure Pages deploys from the `main` branch and `/(root)` (or an equivalent configured deployment). This repository was already in use; the media site only adds the isolated `media-vault/` directory. The expected project-pages URL, **if Pages is enabled**, is `https://onikri.github.io/hots_tank.github.io/media-vault/`. Confirm the actual published URL before using it; only the GitHub repository is confirmed as written.
 6. Visit the live site: **Войти через Google** → **Подключить Drive** → enter a new strong shared phrase twice → **Создать новую библиотеку**. The encrypted index is created in the dedicated Drive folder, and its file ID is saved only in this browser's localStorage. Save the phrase offline; forgetting it makes the media unrecoverable.
-7. In admin controls, upload files and then invite reader emails (Drive folder's \`reader\` ACL). Copy the URL with \`?library=...\` and send the passphrase through a separate channel. The reader logs into their own invited Google account, connects Drive as read-only and unlocks the catalog.
+7. In admin controls, upload files and then invite reader emails (Drive folder's `reader` ACL). Copy the URL with `?library=...` and send the passphrase through a separate channel. The reader logs into their own invited Google account, connects Drive as read-only and unlocks the catalog.
 
 ### Files already created
 
-- GitHub repository: \`Onikri/hots_tank.github.io\`, folder \`media-vault/\`
-- Precreated Google Drive folder: ID \`18qA7Kz_yxnI3Tlcs2Y5Z4tHtEQM4uryr\` (private). If that folder is not accessible to the owner account used in the browser, the site creates a new folder in their own Drive upon initial setup.
+- GitHub repository: `Onikri/hots_tank.github.io`, folder `media-vault/`
+- Precreated Google Drive folder: ID `18qA7Kz_yxnI3Tlcs2Y5Z4tHtEQM4uryr` (private). If that folder is not accessible to the owner account used in the browser, the site creates a new folder in their own Drive upon initial setup.
 - There is no catalog file or encrypted media in Drive **yet**; the owner must choose a secret phrase to initialize it. Never generate or retain that phrase on the owner's behalf.
 
 ## Compatibility and limits
 
 - The site's JavaScript is publicly readable. Privacy comes from Google Drive's server-side file permissions **plus encryption**, not hiding code or a public folder ID.
-- The owner uses broad Google Drive OAuth scope for uploads and sharing, and readers use \`drive.readonly\`. These scopes grant Google consent to the app for corresponding Drive access. Review the source before authorization.
+- The owner uses broad Google Drive OAuth scope for uploads and sharing, and readers use `drive.readonly`. These scopes grant Google consent to the app for corresponding Drive access. Review the source before authorization.
 - Access tokens and CryptoKeys are stored only in page and Service Worker memory. Reauthorize after the token expires or when the SW restarts; playback can stop until the user reconnects.
 - Service Worker HTTP Range video playback is experimental and needs real Android/iOS testing; browser-specific Range behavior can differ. Video/audio have an explicit full-file fallback which may be too large for the phone's RAM.
 - MP4 with H.264/AAC is the recommended video format. MKV/MOV and some FLAC files may upload but not play natively. Automatic transcoding is not provided.
 - Manga and book viewers download the entire CBZ/EPUB/PDF file into phone RAM before opening. Large archives can exhaust memory. For video/audio the Range handler normally downloads only relevant chunks.
-- Incomplete uploads can leave orphaned \`asset-...\` folders; delete those manually if needed.
+- Incomplete uploads can leave orphaned `asset-...` folders; delete those manually if needed.
 - The 4 MiB chunks are individual Drive files, producing many Drive requests. Service Worker retains up to 160 **encrypted** chunks in CacheStorage and may be evicted by browser storage policies.
 - Google Drive's free personal storage allowance is commonly 15 GB shared with Gmail and Photos; downloading/view quotas, API limits, terms and any policies restricting CDN-like use still apply. **1 TB per month is not guaranteed** just because files are encrypted.
 - The app currently depends on third-party CDN scripts for JSZip and epub.js. Those scripts execute with the site's privileges. For sensitive material, self-host audited pinned versions and deploy a strict Content Security Policy before treating this as a high-assurance encrypted vault.
