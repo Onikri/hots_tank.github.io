@@ -20,7 +20,7 @@ test("search and episode list parse expected REST payload",async()=>{
     {data:[{mal_id:20,title:"Found"}]}}};
   const out=await lookupTitles("Frieren");assert.equal(out.results[0].title,"Found");
   const eps=await episodeMetadata(20);assert.equal(eps.episodes[0].number,1);
-  assert.equal(eps.hasNext,true);assert.equal(urls.length,2);
+  assert.equal(eps.hasNext,true);assert.equal(urls.length,3);
  }finally{globalThis.fetch=orig;}
 });
 test("saved metadata is bounded and does not accept arbitrary external poster hosts",()=>{

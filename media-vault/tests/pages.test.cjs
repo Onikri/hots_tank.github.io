@@ -34,6 +34,7 @@ async function main(){
     const context=await browser.newContext({viewport:{width,height:850},serviceWorkers:"block",reducedMotion:"reduce"});
     await context.route("https://accounts.google.com/**",r=>r.fulfill({status:200,contentType:"text/javascript",body:"window.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}};"}));
     await context.route("https://cdn.jsdelivr.net/**",r=>r.fulfill({status:200,contentType:"text/javascript",body:""}));
+    await context.route("https://shikimori.one/**",r=>r.fulfill({status:200,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({data:{animes:[{malId:5114,russian:"Стальной алхимик: Братство",poster:{mainUrl:""}}]}})}));
     await context.route("https://api.jikan.moe/**",r=>{
       const u=new URL(r.request().url());
       let payload;
@@ -49,7 +50,7 @@ async function main(){
     await page.locator(".discover-banner").click();
     await page.waitForURL(/#\/discover/);
     await page.getByRole("heading",{name:"Найти новое"}).waitFor();
-    await page.locator(".directory-card").filter({hasText:"Fullmetal Alchemist"}).first().click();
+    await page.locator(".directory-card").filter({hasText:"Стальной алхимик"}).first().click();
     await page.waitForURL(/#\/title\/5114/);
     await page.getByRole("heading",{name:"Подробности"}).waitFor();
     await page.getByText("A story of two brothers.").waitFor();

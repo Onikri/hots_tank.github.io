@@ -32,7 +32,10 @@ export async function localizeCards(cards,{signal}={}){
   try{
     const query='query ($ids: String) { animes(ids: $ids, limit: 50) { malId russian description poster { mainUrl originalUrl } } }';
     const response=await fetch(SHIKI,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},
-      body:JSON.stringify({query,variables:{ids:ids.join(",")}}),signal});
+      body:JSON.stringify({query,variables:{ids:ids.join(",")}}),
+      signal:signal&&typeof AbortSignal.any==="function"?
+        AbortSignal.any([signal,AbortSignal.timeout(4500)]):
+        (typeof AbortSignal.timeout==="function"?AbortSignal.timeout(4500):signal)});
     if(!response.ok)throw Error("Shikimori "+response.status);
     const data=await response.json();
     const byId=new Map((data?.data?.animes||[]).map(x=>[Number(x.malId),x]));
