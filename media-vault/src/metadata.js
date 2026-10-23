@@ -69,7 +69,7 @@ export function parseSource(input){
   const slug=anchor>=0&&segments[anchor+1]?segments[anchor+1]:segments.filter(x=>x!=="ru").at(-1)||"";
   let raw;
   try{raw=decodeURIComponent(slug);}catch{raw=slug;}
-  const query=raw.replace(/-\d+$/,"").replace(/[-_]+/g," ").trim();
+  const query=raw.replace(/-\d{3,}$/,"").replace(/[-_]+/g," ").trim();
   return {query:query||"",sourceUrl:url.origin+url.pathname,sourceName:host.includes("lib")?"AnimeLIB":"YummyAnime"};
 }
 export function toCard(d){
