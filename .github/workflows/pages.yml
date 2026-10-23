@@ -12,7 +12,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: media-vault-react-release
   cancel-in-progress: true
 
 jobs:
