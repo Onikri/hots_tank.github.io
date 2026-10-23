@@ -13,6 +13,7 @@ const state={user:null,admin:false,token:null,key:null,salt:null,catalog:null,
     localStorage.getItem("mediavault_library")||"",
   category:"all",query:"",worker:null,openUrls:[],book:null};
 let noticeTimer=null;
+const thumbUrls=new Map();
 function show(id,yes=true){$(id).classList.toggle("hidden",!yes);}
 function toast(message,bad=false){
   const node=$("toast");node.textContent=message;node.style.borderColor=bad?"#a45f66":"#496a68";
@@ -198,7 +199,23 @@ function renderLibrary(){
     info.append(name,meta);card.append(cover,info);
     card.addEventListener("click",()=>openViewer(item));
     grid.append(card);
+    if(item.category==="image" && state.token && state.key){
+      const observer=new IntersectionObserver(entries=>{
+        if(entries.some(e=>e.isIntersecting)) {observer.disconnect();lazyThumbnail(item,cover);}
+      },{rootMargin:"100px"});
+      observer.observe(card);
+    }
   }
+}
+async function lazyThumbnail(item,cover){
+  try{
+    if(item.size>25*1024*1024)return;
+    let url=thumbUrls.get(item.id);
+    if(!url){url=URL.createObjectURL(await readWhole(item,true));thumbUrls.set(item.id,url);}
+    if(!cover.isConnected||!state.key)return;
+    const img=document.createElement("img");img.alt="";img.loading="lazy";img.src=url;
+    cover.append(img);
+  }catch(e){console.debug("Предпросмотр недоступен",e.message);}
 }
 function formatSize(n){return n>=1024*1024*1024?(n/1024**3).toFixed(2)+" ГБ":
   n>=1024*1024?(n/1024**2).toFixed(1)+" МБ":Math.ceil(n/1024)+" КБ";}
@@ -265,7 +282,7 @@ async function copyInvite(){
   try{await navigator.clipboard.writeText(inviteUrl());toast("Ссылка-приглашение скопирована.");}
   catch{window.prompt("Скопируй ссылку",inviteUrl());}
 }
-async function readWhole(item){
+async function readWhole(item,silent=false){
   if(item.size>700*1024*1024)toast("Большой файл. Для видео и музыки используй потоковое воспроизведение.");
   const buffers=[];
   for(let i=0;i<item.chunks.length;i++){
@@ -273,9 +290,9 @@ async function readWhole(item){
     const encrypted=await driveDownload(state.token,chunk.fileId);
     const plain=await openChunk(encrypted,state.key,item.id,i,chunk.iv);
     buffers.push(plain);
-    updateStatus("Скачано "+Math.round((i+1)/item.chunks.length*100)+"%");
+    if(!silent)updateStatus("Скачано "+Math.round((i+1)/item.chunks.length*100)+"%");
   }
-  updateStatus((state.admin?"Администратор":"Зритель")+" · библиотека открыта");
+  if(!silent)updateStatus((state.admin?"Администратор":"Зритель")+" · библиотека открыта");
   return new Blob(buffers,{type:item.mime});
 }
 function objectUrl(blob){const u=URL.createObjectURL(blob);state.openUrls.push(u);return u;}
@@ -367,6 +384,7 @@ async function openViewer(item){
 }
 function logout(){
   navigator.serviceWorker?.controller?.postMessage({type:"CLEAR_SESSION"});
+  for(const url of thumbUrls.values())URL.revokeObjectURL(url);thumbUrls.clear();
   state.user=null;state.admin=false;state.token=null;state.key=null;state.salt=null;state.catalog=null;
   closeViewer();show("setupPanel",false);show("adminPanel",false);show("uploadBtn",false);
   show("driveBtn",false);show("logoutBtn",false);show("notice");
