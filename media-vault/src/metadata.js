@@ -98,6 +98,30 @@ export async function lookupTitles(input,opts={}){
   const source=parseSource(input);
   const query=source.query.trim();
   if(!query)throw Error("Нельзя распознать название из ссылки. Введи название вручную.");
+  if(cyrillic(query)){
+    try{
+      const result=await fetch("https://shikimori.one/api/animes?search="+encodeURIComponent(query)+"&limit=12",
+        {headers:{Accept:"application/json"},signal:opts.signal});
+      if(result.ok){
+        const data=await result.json();
+        if(Array.isArray(data)&&data.length){
+          const cards=data.map(x=>{
+            const id=Number(x.id),url=x.image?.original||x.image?.preview||"";
+            let picture="";
+            try{const v=new URL(url,"https://shikimori.one");
+              if(v.protocol==="https:"&&(v.hostname==="shikimori.one"||v.hostname.endsWith(".shikimori.one")))picture=v.href;}catch{}
+            return {id,title:cyrillic(x.russian)?x.russian:x.name||"Без названия",
+              originalTitle:x.name||"",image:picture,imageFallback:picture,description:"Описание доступно после открытия карточки.",
+              episodes:Number.isInteger(x.episodes)&&x.episodes>0?x.episodes:null,
+              score:Number(x.score)||null,year:Number.parseInt(x.aired_on,10)||null,
+              type:x.kind==="tv"?"TV":x.kind||"Аниме",source:"Shikimori",
+              url:"https://shikimori.one/animes/"+id};
+          }).filter(x=>Number.isInteger(x.id)&&x.id>0);
+          if(cards.length)return {source,results:cards};
+        }
+      }
+    }catch(e){if(e?.name==="AbortError")throw e;}
+  }
   const r=await request("/anime?q="+encodeURIComponent(query)+"&limit=12&sfw=true",opts);
   return {source,results:await localizeCards((r.data||[]).map(toCard).filter(c=>c.id),opts)};
 }

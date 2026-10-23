@@ -29,3 +29,17 @@ test("saved metadata is bounded and does not accept arbitrary external poster ho
  const a=validateSavedEntry({id:11,title:"Example",description:"x".repeat(5000),image:"https://evil.test/pic.jpg",episodes:12,sourceUrl:"https://animelib.me/ru/anime/test"});
  assert.equal(a.description.length,4000);assert.equal(a.image,"");assert.equal(a.episodes,12);
 });
+
+test("Russian search uses Shikimori and localized posters",async()=>{
+ const old=globalThis.fetch;const urls=[];
+ try{
+  globalThis.fetch=async url=>{urls.push(url);return {ok:true,json:async()=>[{
+   id:20,name:"Naruto",russian:"Наруто",image:{original:"/system/animes/original/20.jpg"},
+   episodes:220,score:"8.02",kind:"tv",aired_on:"2002-10-03"}]}};
+  const out=await lookupTitles("Наруто");
+  assert.equal(out.results[0].title,"Наруто");
+  assert.match(out.results[0].image,/^https:\/\/shikimori\.one\/system\/animes/);
+  assert.equal(out.results[0].episodes,220);
+  assert.equal(urls.length,1);
+ }finally{globalThis.fetch=old;}
+});
