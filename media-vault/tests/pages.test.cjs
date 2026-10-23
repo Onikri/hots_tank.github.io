@@ -49,7 +49,7 @@ async function main(){
     await page.locator(".discover-banner").click();
     await page.waitForURL(/#\/discover/);
     await page.getByRole("heading",{name:"Найти новое"}).waitFor();
-    await page.locator(".directory-card").first().click();
+    await page.locator(".directory-card").filter({hasText:"Fullmetal Alchemist"}).first().click();
     await page.waitForURL(/#\/title\/5114/);
     await page.getByRole("heading",{name:"Подробности"}).waitFor();
     await page.getByText("A story of two brothers.").waitFor();

@@ -176,3 +176,17 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
   {!["/discover","/import","/upload","/settings"].includes(route)&&!titleId&&<div className="directory-notice">Страница не найдена. <button onClick={()=>navigate("/home")}>На главную</button></div>}
  </main>;
 }
+
+export function SavedMetadata({navigate}){
+ const [entries,setEntries]=useState([]);
+ useEffect(()=>{
+  const handler=e=>setEntries(Array.isArray(e.detail?.entries)?e.detail.entries:[]);
+  document.addEventListener("mediavault:metadata-updated",handler);
+  return()=>document.removeEventListener("mediavault:metadata-updated",handler);
+ },[]);
+ if(!entries.length)return null;
+ return <section className="saved-metadata"><h2 className="directory-subheading">Сохранённые карточки <small>{entries.length}</small></h2>
+  <p className="directory-hint">Описания и обложки сохранены в зашифрованном каталоге Google Drive; видеофайлы загружаются отдельно.</p>
+  <div className="directory-grid">{entries.map(item=><MediaCard key={item.id} item={item} onClick={()=>navigate("/title/"+item.id)}/>)}</div>
+ </section>;
+}

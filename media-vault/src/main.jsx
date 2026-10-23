@@ -9,7 +9,7 @@ import {
   UploadCloud, Copy, Rows3
 } from 'lucide-react';
 import './ui.css';
-import {LibraryPages} from './library-pages.jsx';
+import {LibraryPages,SavedMetadata} from './library-pages.jsx';
 
 const categories=[
   {id:'all',label:'Всё',full:'Все материалы',Icon:LayoutGrid},
@@ -168,6 +168,7 @@ function App(){
             <CategoryTabs current={category} counts={counts} choose={chooseCategory}/>
             <div className="result-heading"><div><strong id="sectionTitle">Все материалы</strong><span id="count">0 файлов</span></div><div className="result-view-buttons"><button className={view==='grid'?'active':''} title="Плитка" aria-label="Плитка" onClick={()=>setView('grid')}><LayoutGrid size={18}/></button><button className={view==='list'?'active':''} title="Список" aria-label="Список" onClick={()=>setView('list')}><Rows3 size={18}/></button></div></div>
             <div id="libraryGrid" className="library-grid"/>
+            <SavedMetadata navigate={navigate}/>
           </section>
         </main>
         <LibraryPages route={route} navigate={navigate} hasCatalog={hasCatalog} isAdmin={isAdmin} signedIn={signedIn} driveConnected={driveConnected}/>
