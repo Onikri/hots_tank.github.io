@@ -53,7 +53,7 @@ export async function localizeCards(cards,{signal}={}){
   }catch(error){if(error?.name==="AbortError")throw error;return original;}
 }
 
-const EXTERNAL_HOSTS=new Set(["animelib.me","animelib.org","animelib.ru","yummyanime.tv","yummyanime.org","yummyani.org"]);
+const EXTERNAL_HOSTS=new Set(["animelib.me","animelib.org","animelib.ru","yummyanime.tv","yummyanime.org","yummyani.org","yummyani.me","ru.yummyani.me"]);
 export const DEMO_IDS=[52991,5114,9253,16498,32281,38000,1535,20583];
 export function parseSource(input){
   const value=String(input||"").trim();
@@ -65,7 +65,10 @@ export function parseSource(input){
   const host=url.hostname.toLowerCase().replace(/^www\./,"");
   if(url.protocol!=="https:" || !EXTERNAL_HOSTS.has(host))throw Error("Поддерживаются HTTPS-ссылки AnimeLIB или YummyAnime. Можно ввести название вместо ссылки.");
   const segments=url.pathname.split("/").filter(Boolean);
-  const raw=decodeURIComponent(segments.filter(x=>x!=="ru"&&x!=="anime"&&x!=="title"&&x!=="watch").at(-1)||"");
+  const anchor=segments.findIndex(x=>["anime","title","watch","catalog"].includes(x));
+  const slug=anchor>=0&&segments[anchor+1]?segments[anchor+1]:segments.filter(x=>x!=="ru").at(-1)||"";
+  let raw;
+  try{raw=decodeURIComponent(slug);}catch{raw=slug;}
   const query=raw.replace(/-\d+$/,"").replace(/[-_]+/g," ").trim();
   return {query:query||"",sourceUrl:url.origin+url.pathname,sourceName:host.includes("lib")?"AnimeLIB":"YummyAnime"};
 }

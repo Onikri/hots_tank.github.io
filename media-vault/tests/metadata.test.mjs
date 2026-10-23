@@ -4,6 +4,8 @@ import {parseSource,toCard,lookupTitles,episodeMetadata,validateSavedEntry} from
 test("source allowlist and URL parsing prevent arbitrary fetches",()=>{
  assert.equal(parseSource("https://animelib.me/ru/anime/attack-on-titan").sourceName,"AnimeLIB");
  assert.equal(parseSource("https://yummyanime.tv/anime/one-piece").query,"one piece");
+ assert.equal(parseSource("https://ru.yummyani.me/anime/sousou-no-frieren/episodes/1").query,"sousou no frieren");
+ assert.equal(parseSource("https://animelib.me/ru/anime/frieren-season-2/episodes/3").query,"frieren season 2");
  assert.equal(parseSource("Наруто").query,"Наруто");
  assert.throws(()=>parseSource("http://animelib.me/anime/naruto"),/HTTPS/);
  assert.throws(()=>parseSource("https://animelib.me.evil.test/anime/naruto"),/Поддерживаются/);
