@@ -34,7 +34,7 @@ jobs:
         run: |
           npm install --prefix media-vault --no-audit --no-fund --no-package-lock
           npm run build --prefix media-vault
-          node --test media-vault/tests/range.test.cjs
+          node --test media-vault/tests/range.test.cjs media-vault/tests/metadata.test.mjs
 
       - name: Visual and interaction tests
         run: |
@@ -42,6 +42,7 @@ jobs:
           sudo apt-get install -y ffmpeg
           npx --prefix media-vault playwright install --with-deps chromium
           CHROMIUM_PATH="$(cd media-vault && node -p 'require("playwright").chromium.executablePath()')" npm run test:ui --prefix media-vault
+          CHROMIUM_PATH="$(cd media-vault && node -p 'require("playwright").chromium.executablePath()')" node media-vault/tests/pages.test.cjs
 
 
       - name: Upload React UI previews
