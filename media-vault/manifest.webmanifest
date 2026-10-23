@@ -3,8 +3,8 @@
   "short_name": "MediaVault",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#131316",
-  "theme_color": "#1a1a1e",
+  "background_color": "#141216",
+  "theme_color": "#351e28",
   "lang": "ru",
   "icons": [
     {

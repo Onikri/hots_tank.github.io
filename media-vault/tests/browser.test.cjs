@@ -78,9 +78,11 @@ async function installProvider(context, identity) {
 }
 
 async function signIn(page) {
-  await page.locator('#loginBtn').click();
+  await page.locator('.header-actions button[aria-label="Аккаунт"]').click();
+  await page.locator('.account-drawer').waitFor({state:'visible'});
+  await page.locator('.account-drawer .solid-button').click();
   await page.waitForFunction(()=>document.querySelector('#loginBtn').disabled);
-  await page.locator('#driveBtn').click();
+  await page.locator('.account-drawer .solid-button').click();
   await page.locator('#setupPanel').waitFor({state:'visible'});
   assert.equal(await page.locator('#driveBtn').isVisible(),true,'Drive reconnect remains available');
 }
@@ -100,9 +102,14 @@ async function main() {
   server=http.createServer(async(req,res)=>{
     try {
       const pathname=new URL(req.url,'http://localhost').pathname;
-      const file=path.join(ROOT,pathname.endsWith('/')?pathname+'index.html':pathname);
-      if(!file.startsWith(ROOT+path.sep)) throw Error('Invalid path');
-      const body=await fs.readFile(file);
+      const relative=pathname.replace(/^\/media-vault\/?/,'')||'index.html';
+      if(!pathname.startsWith('/media-vault/')||relative.includes('..'))throw Error('Invalid path');
+      let file=path.resolve(ROOT,'media-vault','dist',relative);
+      let body;
+      try{body=await fs.readFile(file);}catch{
+        file=path.resolve(ROOT,'media-vault',relative);
+        body=await fs.readFile(file);
+      }
       const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
       res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body);
     } catch {res.writeHead(404);res.end('Not found');}

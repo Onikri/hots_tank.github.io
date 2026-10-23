@@ -22,7 +22,12 @@ function toast(message,bad=false){
   show("toast");clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>show("toast",false),5500);
 }
 function explain(e){if(e?.status===401)expireDrive();toast(e?.message||String(e),true);console.error(e);}
-function updateStatus(text){$("status").textContent=text;}
+function updateStatus(text){
+  $("status").textContent=text;
+  document.dispatchEvent(new CustomEvent("mediavault:auth-state",{detail:{
+    status:text,signedIn:!!state.user,driveConnected:!!state.token,unlocked:!!state.catalog,admin:state.admin
+  }}));
+}
 function saveLibraryId(id){state.libraryId=id;localStorage.setItem("mediavault_library",id);$("libraryId").value=id;}
 async function hashEmail(email){
   const bytes=new TextEncoder().encode(email.trim().toLowerCase());
@@ -463,10 +468,10 @@ function wireUI(){
   $("viewer").addEventListener("click",e=>{if(e.target===$("viewer"))closeViewer();});
   $("searchInput").addEventListener("input",e=>{state.query=e.target.value;renderLibrary();});
   $("sortSelect").addEventListener("change",e=>{state.sort=e.target.value;renderLibrary();});
-  document.querySelectorAll("[data-category]").forEach(btn=>btn.onclick=()=>{
-    document.querySelectorAll("[data-category]").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");state.category=btn.dataset.category;renderLibrary();
-    document.querySelector(".sidebar").classList.remove("open");
+  document.addEventListener("mediavault:choose-category",event=>{
+    if(!(event.detail?.category in labels))return;
+    state.category=event.detail.category;
+    renderLibrary();
   });
   // React owns the mobile sidebar and account navigation.
 }
@@ -497,5 +502,5 @@ if("serviceWorker" in navigator){
 window.addEventListener("focus",()=>{
   if(state.token&&Date.now()>=state.tokenExpiresAt)expireDrive();
 });
-wireUI();checkSetup();registerWorker().catch(console.warn);
+wireUI();checkSetup();renderLibrary();registerWorker().catch(console.warn);
 
