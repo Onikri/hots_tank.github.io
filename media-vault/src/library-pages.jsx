@@ -1,7 +1,8 @@
 import React, {useEffect,useState,useRef} from "react";
 import {motion} from "motion/react";
-import {Search,CloudUpload,Film,BookOpen,ExternalLink,ArrowLeft,Info,ShieldCheck,RefreshCw,Import,FolderPlus,HardDrive,LockKeyhole,AlertTriangle,CheckCircle2,Images,ChevronRight} from "lucide-react";
-import {demoTitles,lookupTitles,animeDetails,episodeMetadata,validateSavedEntry} from "./metadata.js";
+import {Search,CloudUpload,Film,BookOpen,ExternalLink,ArrowLeft,Info,ShieldCheck,RefreshCw,Import,FolderPlus,HardDrive,LockKeyhole,AlertTriangle,CheckCircle2,Images,ChevronRight,PlayCircle,MonitorPlay} from "lucide-react";
+import {demoTitles,lookupTitles,animeDetails,episodeMetadata,validateSavedEntry,imageCandidates} from "./metadata.js";
+import {searchAniLibria,getAniLibriaRelease} from "./streaming.js";
 import "./pages.css";
 
 const fallback=[
@@ -13,11 +14,86 @@ const fallback=[
 {id:38000,title:"Demon Slayer",image:"",description:"Фэнтези и приключения. Открой карточку для получения данных.",episodes:null,score:null}
 ];
 function Poster({item}){
- return <div className={"directory-poster"+(!item.image?" poster-fallback":"")}>
-   {item.image?<img src={item.image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={e=>{e.currentTarget.style.display="none";}}/>:<Film size={40}/>}
-   <span className="poster-demo">ДЕМО</span>
+ const urls=imageCandidates(item);
+ const [index,setIndex]=useState(0);
+ useEffect(()=>setIndex(0),[item?.id,item?.image,item?.imageFallback,item?.shikiImage]);
+ return <div className={"directory-poster"+(index>=urls.length?" poster-fallback":"")}>
+   <div className="poster-placeholder" aria-hidden="true"><Film size={39}/><span>{(item?.title||"Аниме").slice(0,25)}</span></div>
+   {index<urls.length&&<img key={urls[index]} src={urls[index]} alt={"Обложка: "+item.title}
+     loading="lazy" referrerPolicy="no-referrer" onError={()=>setIndex(v=>v+1)}/>}
+   <span className="poster-demo">{item?.sourceName&&item?.updatedAt?"МОЯ":"КАТАЛОГ"}</span>
    {item.score&&<span className="poster-score">★ {item.score}</span>}
  </div>;
+}
+function StreamPlayer({stream,onClose}){
+ const video=useRef(null),[problem,setProblem]=useState("");
+ useEffect(()=>{
+  const el=video.current;
+  if(!el||!stream?.url)return;
+  let disposed=false,player=null;
+  setProblem("");
+  if(el.canPlayType("application/vnd.apple.mpegurl")){
+   el.src=stream.url;
+  }else{
+   import("hls.js").then(({default:Hls})=>{
+    if(disposed)return;
+    if(!Hls.isSupported()){setProblem("Этот браузер не поддерживает HLS. Попробуй открыть источник напрямую.");return;}
+    player=new Hls({enableWorker:true});
+    player.loadSource(stream.url);player.attachMedia(el);
+    player.on(Hls.Events.ERROR,(_,data)=>{if(data?.fatal)setProblem("Воспроизведение не удалось: поток может быть недоступен или заблокирован поставщиком.");});
+   }).catch(()=>setProblem("Не удалось загрузить модуль HLS."));
+  }
+  return()=>{disposed=true;player?.destroy();el.pause();el.removeAttribute("src");el.load();};
+ },[stream?.url]);
+ return <div className="external-video">
+  <div className="external-video-head"><strong>{stream.title||"Серия"} · {stream.quality}</strong>
+    <button type="button" onClick={onClose} className="quiet-button">Закрыть</button></div>
+  <video ref={video} controls playsInline preload="metadata" onError={()=>setProblem("Источник не поддерживает просмотр в этом браузере или блокирует межсайтовые запросы.")}/>
+  {problem&&<p className="directory-notice" role="alert">{problem} <a href={stream.url} target="_blank" rel="noopener noreferrer">Открыть поток отдельно</a></p>}
+ </div>;
+}
+function PublicReleasePanel({title}){
+ const [results,setResults]=useState([]),[release,setRelease]=useState(null),[busy,setBusy]=useState(false);
+ const [message,setMessage]=useState(""),[selected,setSelected]=useState(null);
+ useEffect(()=>{setResults([]);setRelease(null);setMessage("");setSelected(null);},[title?.id]);
+ if(!title)return null;
+ async function search(){
+  setBusy(true);setMessage("");setSelected(null);setRelease(null);
+  try{
+   const data=await searchAniLibria(title.originalTitle||title.title);
+   setResults(data);
+   if(!data.length)setMessage("Подтверждённых совпадений в AniLibria нет. Для этого тайтла источник потоков недоступен.");
+  }catch(e){setMessage("Поиск AniLibria: "+e.message);}
+  finally{setBusy(false);}
+ }
+ async function choose(id){
+  setBusy(true);setMessage("");setSelected(null);
+  try{
+   const data=await getAniLibriaRelease(id);setRelease(data);
+   if(!data.episodes.length)setMessage("Для выбранного релиза нет опубликованного списка серий.");
+  }catch(e){setMessage("Не удалось получить серии: "+e.message);}
+  finally{setBusy(false);}
+ }
+ return <section className="public-release" aria-label="Публичные релизы AniLibria">
+  <div className="public-release-heading"><div><h2>Доступные серии с AniLibria</h2>
+   <p>Публичный каталог другого сервиса: серии и русская озвучка могут отличаться от YummyAnime.</p></div>
+   <button type="button" className="quiet-button" disabled={busy} onClick={search}><Search size={17}/>{busy?"Загрузка…":"Найти релизы"}</button>
+  </div>
+  {!!results.length&&!release&&<div className="release-list">{results.map(r=><button className="release-choice" type="button" key={r.id} onClick={()=>choose(r.id)} disabled={busy}>
+    <strong>{r.title}</strong><span>{r.year||"Год не указан"}</span><ChevronRight size={18}/></button>)}</div>}
+  {release&&<div className="release-detail"><div className="release-summary">
+   <strong>{release.title}</strong><button className="quiet-button" type="button" onClick={()=>{setRelease(null);setSelected(null);}}>Другой релиз</button></div>
+   <div className="release-episodes">{release.episodes.map((ep,i)=><div className="release-episode" key={ep.number||i}>
+    <span>Серия {ep.number||i+1} — {ep.title}</span>
+    <div>{ep.streams.length?ep.streams.map(st=><button type="button" key={st.quality}
+      onClick={()=>setSelected({...st,title:"Серия "+(ep.number||i+1)})}><PlayCircle size={16}/>{st.quality}</button>):
+      <small>Видео не предоставлено источником</small>}</div>
+   </div>)}</div>
+   {selected&&<StreamPlayer stream={selected} onClose={()=>setSelected(null)}/>}
+  </div>}
+  {message&&<p className="directory-notice" role="status">{message}</p>}
+  <p className="directory-hint">Просмотр работает только с потоками, которые вернул публичный API AniLibria, если CDN разрешает воспроизведение из браузера. Ограничения доступа не обходятся.</p>
+ </section>;
 }
 function MediaCard({item,onClick}){
  return <motion.button type="button" className="directory-card" whileTap={{scale:.965}} onClick={onClick}>
@@ -117,7 +193,7 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
  if(route==="/home"||route==="/catalog"||route==="/")return null;
  return <main className="main-content directory-page">
   {route==="/discover"&&<>
-   <PageHeader eyebrow="ОТКРЫТЫЙ КАТАЛОГ" title="Найти новое" subtitle="Тестовые карточки с открытыми данными Jikan / MyAnimeList. Это не твои загруженные файлы."/>
+   <PageHeader eyebrow="ОТКРЫТЫЙ КАТАЛОГ" title="Найти новое" subtitle="Тестовые карточки с русскими названиями, обложками и данными каталогов Shikimori / MyAnimeList. Это не твои личные файлы."/>
    <div className="directory-toolbar"><button className="quiet-button" type="button" onClick={()=>navigate("/import")}><Search size={17}/> Поиск по ссылке или названию</button><span className="directory-caption">{demoBusy?"Загружаем обложки…":"Демо-режим"}</span></div>
    {demoError&&<p className="directory-notice">{demoError}</p>}
    <div className="directory-grid">{demo.map(item=><MediaCard key={item.id} item={item} onClick={()=>choose(item)}/>)}</div>
@@ -125,13 +201,13 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
    {!!saved.length&&<><h2 className="directory-subheading">Сохранено в твоём Drive</h2><div className="directory-grid">{saved.map(item=><MediaCard key={item.id} item={item} onClick={()=>choose(item)}/>)}</div></>}
   </>}
   {route==="/import"&&<>
-   <PageHeader eyebrow="ПОИСК ПО ИСТОЧНИКАМ" title="Импорт карточки" subtitle="Введи название аниме или ссылку AnimeLIB / YummyAnime. Подберём метаданные через Jikan." back={()=>navigate("/discover")}/>
+   <PageHeader eyebrow="ПОИСК ПО ИСТОЧНИКАМ" title="Импорт карточки" subtitle="Введи название аниме или ссылку AnimeLIB / YummyAnime. Подберём русские названия и обложки из открытых каталогов." back={()=>navigate("/discover")}/>
    <form className="directory-import" onSubmit={search}>
      <label htmlFor="importValue">Название или HTTPS-ссылка</label>
      <input id="importValue" value={importInput} onChange={e=>setImportInput(e.target.value)} placeholder="Например, Frieren или ссылка с AnimeLIB" required/>
      <button className="solid-button" disabled={lookupBusy} type="submit"><Search size={18}/>{lookupBusy?"Ищем…":"Найти карточку"}</button>
    </form>
-   <p className="directory-hint">Из сторонней ссылки берётся только название для поиска. Обложка, описание и число эпизодов поступают из Jikan, не из AnimeLIB/YummyAnime. Наличие озвучки или видео на этих сайтах не проверяется.</p>
+   <p className="directory-hint">Из сторонней ссылки берётся только название для поиска. Обложка, русское название и описание берутся из Shikimori/Jikan, а доступные для просмотра серии можно отдельно искать в AniLibria. YummyAnime требует собственный API-токен X-Application; без него видео с YummyAnime автоматически не извлекаются.</p>
    {lookupError&&<div className="directory-notice" role="alert">{lookupError}</div>}
    {!!matches.length&&<><h2 className="directory-subheading">Результаты поиска · {matches.length}</h2><div className="directory-grid">{matches.map(x=><MediaCard key={x.id} item={x} onClick={()=>choose(x)}/>)}</div></>}
   </>}
@@ -146,10 +222,12 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
        <span>{detail.episodes==null?"Серии не уточнены":detail.episodes+" эпизодов по Jikan"}</span></div>
      <p className="detail-synopsis">{detail.description}</p>
      <div className="detail-actions"><button className="solid-button" disabled={saving} onClick={()=>save(detail)} type="button"><FolderPlus size={17}/>{saving?"Сохранение…":"В мою библиотеку"}</button>
-      {detail.url&&<a className="quiet-button" href={detail.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Источник метаданных</a>}</div>
+      {detail.url&&<a className="quiet-button" href={detail.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Источник метаданных</a>}
+      {source?.sourceUrl&&<a className="quiet-button" href={source.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Открыть на {source.sourceName}</a>}</div>
      {saveMessage&&<p className="directory-notice" role="status">{saveMessage}</p>}
     </div></div>
-    <h2 className="directory-subheading">Список эпизодов <small>по MyAnimeList, не доступность потоков</small></h2>
+    <PublicReleasePanel title={detail}/>
+    <h2 className="directory-subheading">Эпизоды MyAnimeList <small>информационный список, не видео</small></h2>
     {episodes.length?<div className="episodes-list">{episodes.map((ep,i)=><div key={ep.number||i} className="episode-row"><span className="episode-number">{ep.number||i+1}</span><span>{ep.title}</span><small>{ep.aired?new Date(ep.aired).toLocaleDateString("ru"):""}</small></div>)}</div>:<div className="directory-tip"><Info size={18}/> Список эпизодов не опубликован или временно недоступен.</div>}
     {moreEpisodes&&<button className="quiet-button directory-more" onClick={more} type="button">Показать ещё эпизоды <ChevronRight size={16}/></button>}
    </>}
