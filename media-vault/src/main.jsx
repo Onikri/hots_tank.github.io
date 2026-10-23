@@ -9,6 +9,7 @@ import {
   UploadCloud, Copy, Rows3
 } from 'lucide-react';
 import './ui.css';
+import {LibraryPages} from './library-pages.jsx';
 
 const categories=[
   {id:'all',label:'Всё',full:'Все материалы',Icon:LayoutGrid},
@@ -38,6 +39,11 @@ function CategoryTabs({current,counts,choose}){
 }
 function App(){
   const reduceMotion=useReducedMotion();
+  const getRoute=()=>{const hash=decodeURIComponent(location.hash.slice(1));return hash.startsWith("/")?hash:"/home";};
+  const [route,setRoute]=useState(getRoute);
+  useEffect(()=>{const handler=()=>setRoute(getRoute());window.addEventListener('hashchange',handler);return()=>window.removeEventListener('hashchange',handler);},[]);
+  function navigate(path){if(location.hash==="#"+path)setRoute(path);else location.hash=path;}
+
   const [category,setCategory]=useState('all');
   const [counts,setCounts]=useState(defaultCounts);
   const [menu,setMenu]=useState(false);
@@ -79,17 +85,16 @@ function App(){
   useEffect(()=>{document.getElementById('libraryGrid')?.classList.toggle('as-list',view==='list');},[view]);
 
   function goTo(id){
-    closeOverlays();setActive(id);
-    const anchor=id==='home'?'homeSection':'librarySection';
-    document.getElementById(anchor)?.scrollIntoView({behavior:reduceMotion?'instant':'smooth',block:'start'});
+    closeOverlays();setActive(id);navigate('/'+id);
+    window.scrollTo({top:0,behavior:reduceMotion?'instant':'smooth'});
   }
   function chooseCategory(id){
-    setCategory(id);setActive('catalog');closeOverlays();
+    setCategory(id);setActive('catalog');closeOverlays();navigate('/catalog');
     document.dispatchEvent(new CustomEvent('mediavault:choose-category',{detail:{category:id}}));
     document.getElementById('librarySection')?.scrollIntoView({behavior:reduceMotion?'instant':'smooth',block:'start'});
   }
   function addMedia(){
-    closeOverlays();
+    closeOverlays();navigate('/upload');
     const el=document.getElementById('uploadBtn');
     if(el && !el.classList.contains('hidden'))document.getElementById('filesInput')?.click();
     else document.getElementById('primaryBtn')?.click();
@@ -100,8 +105,12 @@ function App(){
       <aside className="desktop-rail" aria-label="Боковая навигация">
         <Brand/>
         <p className="rail-title">НАВИГАЦИЯ</p>
-        <button className={'rail-item'+(active==='home'?' current':'')} onClick={()=>goTo('home')}><House size={19}/><span>Главная</span></button>
-        <button className={'rail-item'+(active==='catalog'?' current':'')} onClick={()=>goTo('catalog')}><LayoutGrid size={19}/><span>Моя коллекция</span><span className="rail-count">{counts.all}</span></button>
+        <button className={'rail-item'+(route==='/home'?' current':'')} onClick={()=>goTo('home')}><House size={19}/><span>Главная</span></button>
+        <button className={'rail-item'+(route==='/catalog'?' current':'')} onClick={()=>goTo('catalog')}><LayoutGrid size={19}/><span>Моя коллекция</span><span className="rail-count">{counts.all}</span></button>
+        <button className={'rail-item'+(route==='/discover'?' current':'')} onClick={()=>navigate('/discover')}><Search size={19}/><span>Открытый каталог</span></button>
+        <button className={'rail-item'+(route==='/import'?' current':'')} onClick={()=>navigate('/import')}><BookOpen size={19}/><span>Поиск по AnimeLIB</span></button>
+        <button className={'rail-item'+(route==='/upload'?' current':'')} onClick={()=>navigate('/upload')}><Cloud size={19}/><span>Загрузки в Drive</span></button>
+        <button className={'rail-item'+(route==='/settings'?' current':'')} onClick={()=>navigate('/settings')}><ShieldCheck size={19}/><span>Настройки</span></button>
         <p className="rail-title rail-categories">МЕДИАТЕКА</p>
         <nav id="nav" aria-label="Разделы">
           {categories.filter(x=>x.id!=='all').map(({id,full,Icon})=><button className={'rail-item'+(category===id?' current':'')} data-category={id} key={id} onClick={()=>chooseCategory(id)}><Icon size={19}/><span>{full}</span></button>)}
@@ -119,14 +128,15 @@ function App(){
             <IconButton Icon={Menu} label="Меню" className="mobile-menu-icon" active={menu} onClick={()=>{setMenu(v=>!v);setAccount(false);setFilterOpen(false);}}/>
           </div>
         </header>
-        <main className="main-content">
-          <section id="homeSection" className={"home-section"+(hasCatalog?" is-unlocked":"")}>
+        <main className="main-content" hidden={route!=='/home'&&route!=='/catalog'}>
+          <section id="homeSection" style={route==='/catalog'?{display:'none'}:undefined} className={"home-section"+(hasCatalog?" is-unlocked":"")}>
             <div className="section-intro"><span className="eyebrow">MEDIA<span className="orange-text">VAULT</span> / LIBRARY</span><h1>Твоя коллекция<span className="period">.</span></h1><p>Всё, что хочется пересматривать и перечитывать.</p></div>
             <div className="welcome-strip">
               <div className="welcome-mark"><BookOpen size={28} strokeWidth={1.6}/><div className="welcome-mark-spark">✳</div></div>
               <div className="welcome-text"><span>ЛИЧНОЕ ХРАНИЛИЩЕ</span><strong>{hasCatalog?'Библиотека открыта':'Твои файлы. Твои правила.'}</strong><p>Аниме, манга, книги, музыка и фото — в одном защищённом месте.</p></div>
               <button className="welcome-link" type="button" onClick={addMedia} aria-label={hasCatalog?'Добавить файлы':'Подключить библиотеку'}><ArrowUpRight size={21}/></button>
             </div>
+            <button type="button" className="discover-banner" onClick={()=>navigate('/discover')}><span><strong>Открытый каталог</strong><small>Примеры аниме, обложки и описания · Jikan</small></span><ChevronRight size={20}/></button>
             <div className="small-overview">
               <div className="stat"><span className="stat-icon sky"><FolderOpen size={17}/></span><div><strong>{counts.all}</strong><span>материалов</span></div></div>
               <div className="stat"><span className="stat-icon lime"><LockKeyhole size={17}/></span><div><strong>AES-256</strong><span>шифрование</span></div></div>
@@ -160,18 +170,24 @@ function App(){
             <div id="libraryGrid" className="library-grid"/>
           </section>
         </main>
+        <LibraryPages route={route} navigate={navigate} hasCatalog={hasCatalog} isAdmin={isAdmin} signedIn={signedIn} driveConnected={driveConnected}/>
       </div>
     </div>
     <nav className="bottom-nav" aria-label="Навигация">
       {[{id:'home',Icon:House,label:'Главная'},{id:'catalog',Icon:LayoutGrid,label:'Каталог'}].map(({id,Icon,label})=><button key={id} className={'bottom-item'+(active===id?' active':'')} onClick={()=>goTo(id)}><motion.span whileTap={{scale:.8}}><Icon size={22} strokeWidth={active===id?2.3:1.8}/></motion.span><small>{label}</small></button>)}
-      <button className="bottom-item bottom-add" type="button" onClick={addMedia}><motion.span whileTap={{scale:.82,rotate:90}} className="bottom-add-icon"><Plus size={25}/></motion.span><small>Добавить</small></button>
+      <button className="bottom-item bottom-add" type="button" onClick={()=>navigate('/upload')}><motion.span whileTap={{scale:.82,rotate:90}} className="bottom-add-icon"><Plus size={25}/></motion.span><small>Добавить</small></button>
       <button className={'bottom-item'+(account?' active':'')} type="button" onClick={()=>{setAccount(!account);setMenu(false);setFilterOpen(false);}}><motion.span whileTap={{scale:.8}}><UserRound size={22}/></motion.span><small>Аккаунт</small></button>
       <button id="mobileMenu" className={'bottom-item'+(menu?' active':'')} type="button" onClick={()=>{setMenu(!menu);setAccount(false);setFilterOpen(false);}}><motion.span whileTap={{scale:.8}}><Menu size={22}/></motion.span><small>Меню</small></button>
     </nav>
     <AnimatePresence>
       {(menu||account||filterOpen)&&<motion.div key="scrim" className="overlay-scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={closeOverlays}/>}
-      {menu&&<motion.aside {...appearanceMotion} key="menu" className="app-drawer" role="dialog" aria-modal="true" aria-label="Меню категорий"><div className="drawer-top"><Brand/><IconButton Icon={X} label="Закрыть меню" onClick={closeOverlays}/></div><p className="drawer-caption">МОЯ МЕДИАТЕКА</p><button className="drawer-link" onClick={()=>goTo('home')}><House size={19}/> Главная <ChevronRight size={16}/></button><button className="drawer-link" onClick={()=>goTo('catalog')}><LayoutGrid size={19}/> Библиотека <ChevronRight size={16}/></button><Separator className="drawer-divider" decorative/>{categories.filter(x=>x.id!=='all').map(({id,full,Icon})=><button key={id} data-category={id} onClick={()=>chooseCategory(id)} className={'drawer-link'+(category===id?' selected':'')}><Icon size={19}/>{full}<ChevronRight size={16}/></button>)}<div className="drawer-footer"><ShieldCheck size={18}/> Защита AES-256-GCM</div></motion.aside>}
-      {account&&<motion.section {...appearanceMotion} key="account" className="app-drawer account-drawer" role="dialog" aria-modal="true" aria-label="Аккаунт"><div className="drawer-top"><div><p className="drawer-caption">MEDIA VAULT</p><h2>Аккаунт</h2></div><IconButton Icon={X} label="Закрыть" onClick={closeOverlays}/></div><div className="account-banner"><span className="account-avatar"><UserRound size={28}/></span><div><strong>Google Drive</strong><p>{status}</p></div><span className="status-dot"/></div><div className="account-buttons">{!signedIn&&<button type="button" className="solid-button" onClick={()=>document.getElementById('loginBtn')?.click()}><LogIn size={17}/> Войти через Google</button>}{signedIn&&<button type="button" className="solid-button" onClick={()=>document.getElementById('driveBtn')?.click()}><Cloud size={17}/> {driveConnected?'Обновить доступ к Drive':'Подключить Drive'}</button>}{signedIn&&<button type="button" className="quiet-button" onClick={()=>document.getElementById('logoutBtn')?.click()}><LogOut size={17}/> Выйти</button>}</div><Separator className="drawer-divider" decorative/><button className="drawer-link" type="button" onClick={()=>{closeOverlays();document.getElementById('setupPanel')?.scrollIntoView({behavior:'smooth'});}}><LockKeyhole size={18}/> Открыть библиотеку <ChevronRight size={16}/></button><button className="drawer-link" type="button" onClick={()=>{closeOverlays();goTo('catalog');}}><FolderOpen size={18}/> Мои файлы <ChevronRight size={16}/></button><div className="account-warning"><ShieldCheck size={19}/><p>Ключ шифрования не отправляется на сервер. Никому не передавай секретную фразу.</p></div></motion.section>}
+      {menu&&<motion.aside {...appearanceMotion} key="menu" className="app-drawer" role="dialog" aria-modal="true" aria-label="Меню категорий"><div className="drawer-top"><Brand/><IconButton Icon={X} label="Закрыть меню" onClick={closeOverlays}/></div><p className="drawer-caption">МОЯ МЕДИАТЕКА</p><button className="drawer-link" onClick={()=>goTo('home')}><House size={19}/> Главная <ChevronRight size={16}/></button><button className="drawer-link" onClick={()=>goTo('catalog')}><LayoutGrid size={19}/> Библиотека <ChevronRight size={16}/></button>
+        <button className="drawer-link" onClick={()=>{closeOverlays();navigate('/discover');}}><Search size={19}/> Открытый каталог <ChevronRight size={16}/></button>
+        <button className="drawer-link" onClick={()=>{closeOverlays();navigate('/import');}}><BookOpen size={19}/> Импорт с AnimeLIB / YummyAnime <ChevronRight size={16}/></button>
+        <button className="drawer-link" onClick={()=>{closeOverlays();navigate('/upload');}}><Cloud size={19}/> Загрузка файлов <ChevronRight size={16}/></button>
+        <button className="drawer-link" onClick={()=>{closeOverlays();navigate('/settings');}}><ShieldCheck size={19}/> Настройки <ChevronRight size={16}/></button><Separator className="drawer-divider" decorative/>{categories.filter(x=>x.id!=='all').map(({id,full,Icon})=><button key={id} data-category={id} onClick={()=>chooseCategory(id)} className={'drawer-link'+(category===id?' selected':'')}><Icon size={19}/>{full}<ChevronRight size={16}/></button>)}<div className="drawer-footer"><ShieldCheck size={18}/> Защита AES-256-GCM</div></motion.aside>}
+      {account&&<motion.section {...appearanceMotion} key="account" className="app-drawer account-drawer" role="dialog" aria-modal="true" aria-label="Аккаунт"><div className="drawer-top"><div><p className="drawer-caption">MEDIA VAULT</p><h2>Аккаунт</h2></div><IconButton Icon={X} label="Закрыть" onClick={closeOverlays}/></div><div className="account-banner"><span className="account-avatar"><UserRound size={28}/></span><div><strong>Google Drive</strong><p>{status}</p></div><span className="status-dot"/></div><div className="account-buttons">{!signedIn&&<button type="button" className="solid-button" onClick={()=>document.getElementById('loginBtn')?.click()}><LogIn size={17}/> Войти через Google</button>}{signedIn&&<button type="button" className="solid-button" onClick={()=>document.getElementById('driveBtn')?.click()}><Cloud size={17}/> {driveConnected?'Обновить доступ к Drive':'Подключить Drive'}</button>}{signedIn&&<button type="button" className="quiet-button" onClick={()=>document.getElementById('logoutBtn')?.click()}><LogOut size={17}/> Выйти</button>}</div><Separator className="drawer-divider" decorative/><button className="drawer-link" type="button" onClick={()=>{closeOverlays();document.getElementById('setupPanel')?.scrollIntoView({behavior:'smooth'});}}><LockKeyhole size={18}/> Открыть библиотеку <ChevronRight size={16}/></button><button className="drawer-link" type="button" onClick={()=>{closeOverlays();goTo('catalog');}}><FolderOpen size={18}/> Мои файлы <ChevronRight size={16}/></button>
+        <button className="drawer-link" type="button" onClick={()=>{closeOverlays();navigate('/settings');}}><ShieldCheck size={18}/> Настройки Google Drive <ChevronRight size={16}/></button><div className="account-warning"><ShieldCheck size={19}/><p>Ключ шифрования не отправляется на сервер. Никому не передавай секретную фразу.</p></div></motion.section>}
       {filterOpen&&<motion.section {...appearanceMotion} key="filters" className="filter-sheet" role="dialog" aria-modal="true" aria-label="Сортировка"><div className="drawer-top"><h2>Сортировка</h2><IconButton Icon={X} label="Закрыть" onClick={closeOverlays}/></div>{[['newest','Сначала новые'],['oldest','Сначала старые'],['name','По названию'],['size','По размеру']].map(([id,label])=><button className={'sort-row'+(sort===id?' selected':'')} key={id} onClick={()=>{setSort(id);closeOverlays();document.getElementById('sortSelect').value=id;document.getElementById('sortSelect').dispatchEvent(new Event('change',{bubbles:true}));}}>{label}{sort===id&&<Check size={19}/>}</button>)}</motion.section>}
     </AnimatePresence>
     <select id="sortSelect" value={sort} onChange={e=>setSort(e.target.value)} aria-label="Сортировка файлов" className="sr-only" tabIndex={-1}><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option><option value="name">По названию</option><option value="size">По размеру</option></select>

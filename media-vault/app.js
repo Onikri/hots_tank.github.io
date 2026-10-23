@@ -158,7 +158,9 @@ async function createLibrary(){
     toast("Библиотека создана. Сохрани секретную фразу и ссылку-приглашение!");
   }catch(e){explain(e);updateStatus("Ошибка создания");}
 }
+function emitMetadata(){document.dispatchEvent(new CustomEvent("mediavault:metadata-updated",{detail:{entries:state.catalog?.entries||[]}}));}
 function enterLibrary(){
+  emitMetadata();
   show("setupPanel",false);show("notice",false);show("adminPanel",state.admin);
   show("uploadBtn",state.admin);
   updateStatus((state.admin?"Администратор":"Зритель")+" · библиотека открыта");
@@ -280,6 +282,7 @@ async function saveCatalog(){
     new Blob([JSON.stringify(sealed)],{type:"application/octet-stream"}));
   await sessionToWorker();
   renderLibrary();
+  emitMetadata();
 }
 async function uploadFiles(files){
   if(!state.admin||!state.key) return toast("Библиотека закрыта.",true);
@@ -291,6 +294,8 @@ async function uploadFiles(files){
       const label=document.createElement("div");label.textContent=file.name+" — подготовка";
       const bar=document.createElement("progress");bar.max=file.size||1;bar.value=0;
       display.append(label,bar);queue.append(display);
+      const report=(percent,status,error="")=>document.dispatchEvent(new CustomEvent("mediavault:upload-progress",{detail:{name:file.name,percent,status,error}}));
+      report(0,"running");
       try{
         const category=guessCategory(file);
         const itemId=crypto.randomUUID();
@@ -304,6 +309,7 @@ async function uploadFiles(files){
           chunks.push({fileId:remote.id,iv:sealed.iv});
           bar.value=Math.min(file.size,start+slice.byteLength);
           label.textContent=file.name+" — "+Math.round(bar.value/file.size*100)+"%";
+          report(Math.round(bar.value/file.size*100),"running");
         }
         if(chunks.length===0) throw Error("Пустой файл не поддерживается.");
         const item={id:itemId,folderId:directory.id,name:file.name,category,
@@ -311,7 +317,8 @@ async function uploadFiles(files){
         state.catalog.items.push(item);
         await saveCatalog();
         label.textContent="✓ "+file.name+" — зашифровано и загружено";
-      }catch(e){label.textContent="✕ "+file.name+" — "+e.message;console.error(e);}
+        report(100,"done");
+      }catch(e){label.textContent="✕ "+file.name+" — "+e.message;report(0,"error",e.message);console.error(e);}
     }
     toast("Очередь загрузки обработана.");
   }finally{$("selectFilesBtn").disabled=false;$("filesInput").value="";}
@@ -451,7 +458,7 @@ function logout(){
   $("loginBtn").disabled=false;$("loginBtn").textContent="Войти через Google";
   $("driveBtn").textContent="Подключить Drive";
   checkSetup();
-  updateStatus("Не подключено");renderLibrary();
+  updateStatus("Не подключено");renderLibrary();emitMetadata();
 }
 function wireUI(){
   $("loginBtn").onclick=login;$("driveBtn").onclick=connectDrive;
@@ -501,6 +508,20 @@ if("serviceWorker" in navigator){
 }
 window.addEventListener("focus",()=>{
   if(state.token&&Date.now()>=state.tokenExpiresAt)expireDrive();
+});
+document.addEventListener("mediavault:save-metadata",async event=>{
+  const {entry,requestId}=event.detail||{};
+  const respond=(ok,error="")=>document.dispatchEvent(new CustomEvent("mediavault:metadata-result",{detail:{ok,error,requestId}}));
+  try{
+    if(!state.admin||!state.key||!state.token||!state.catalog)throw Error("Только администратор открытой библиотеки может сохранять карточки.");
+    if(!Number.isInteger(entry?.id)||entry.id<=0||!entry.title||String(entry.title).length>180||String(entry.description||"").length>4000)
+      throw Error("Некорректные метаданные.");
+    const entries=state.catalog.entries||[];
+    const next={...entry,updatedAt:new Date().toISOString()};
+    state.catalog.entries=[...entries.filter(e=>e.id!==entry.id),next];
+    try{await saveCatalog();}catch(error){state.catalog.entries=entries;throw error;}
+    emitMetadata();respond(true);
+  }catch(error){respond(false,error.message||String(error));}
 });
 wireUI();checkSetup();renderLibrary();registerWorker().catch(console.warn);
 

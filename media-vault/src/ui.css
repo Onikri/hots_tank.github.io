@@ -21,3 +21,10 @@
 .home-section.is-unlocked .section-intro{margin-bottom:15px}
 /* On 320px phones the long connection status must never collide with the wordmark. */
 @media(max-width:360px){.app-header .connection-status{display:none}}
+
+
+.discover-banner{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(110deg,#30242d,#231c25);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:15px 18px;text-align:left;margin:14px 0;cursor:pointer}
+.discover-banner span{display:flex;flex-direction:column;gap:3px}
+.discover-banner strong{font-size:15px}
+.discover-banner small{font-size:12px;color:var(--muted)}
+.discover-banner svg{color:var(--orange)}
