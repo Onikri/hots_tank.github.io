@@ -1,6 +1,7 @@
 // Drive is the only persistent backend. Browser OAuth access token is never stored.
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
+function httpError(message,status){return Object.assign(Error(message),{status});}
 export async function driveRequest(token, path, options={}) {
   const {headers={},...other}=options;
   const res=await fetch(API+path,{...other,headers:{Authorization:"Bearer "+token,...headers}});
@@ -8,7 +9,7 @@ export async function driveRequest(token, path, options={}) {
     let msg;
     try { const body=await res.json();msg=body.error?.message || res.statusText; }
     catch { msg=res.statusText; }
-    throw Error("Google Drive ("+res.status+"): "+msg);
+    throw httpError("Google Drive ("+res.status+"): "+msg,res.status);
   }
   if (res.status===204) return {};
   return res.json();
@@ -16,7 +17,7 @@ export async function driveRequest(token, path, options={}) {
 export async function driveDownload(token, id) {
   const res=await fetch(API+"/files/"+encodeURIComponent(id)+"?alt=media",
     {headers:{Authorization:"Bearer "+token}});
-  if(!res.ok) throw Error("Ошибка скачивания из Drive: HTTP "+res.status);
+  if(!res.ok) throw httpError("Ошибка скачивания из Drive: HTTP "+res.status,res.status);
   return res.arrayBuffer();
 }
 export async function readEnvelope(token,id) {
@@ -32,8 +33,11 @@ export async function createFolder(token,name,parentId) {
 }
 export async function folderExists(token,id) {
   if(!id) return false;
-  try { await driveRequest(token,"/files/"+encodeURIComponent(id)+"?fields=id,mimeType");return true; }
-  catch { return false; }
+  try {
+    const folder=await driveRequest(token,"/files/"+encodeURIComponent(id)+"?fields=id,mimeType,capabilities(canAddChildren)");
+    return folder.mimeType==="application/vnd.google-apps.folder"&&folder.capabilities?.canAddChildren===true;
+  }
+  catch(error) { if(error.status===404)return false;throw error; }
 }
 export async function uploadSmall(token,name,blob,parentId) {
   // The ciphertext chunk is 4 MiB + 16 bytes: safely below multipart 5 MB guidance.
@@ -45,13 +49,13 @@ export async function uploadSmall(token,name,blob,parentId) {
   const res=await fetch(UPLOAD+"/files?uploadType=multipart&fields=id,name",{
     method:"POST",headers:{Authorization:"Bearer "+token,
       "Content-Type":"multipart/related; boundary="+boundary},body});
-  if(!res.ok) throw Error("Ошибка загрузки в Drive: HTTP "+res.status+" "+(await res.text()).slice(0,200));
+  if(!res.ok) throw httpError("Ошибка загрузки в Drive: HTTP "+res.status+" "+(await res.text()).slice(0,200),res.status);
   return res.json();
 }
 export async function replaceSmall(token,id,blob) {
   const res=await fetch(UPLOAD+"/files/"+encodeURIComponent(id)+"?uploadType=media",{
     method:"PATCH",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:blob});
-  if(!res.ok) throw Error("Не удалось сохранить каталог: HTTP "+res.status);
+  if(!res.ok) throw httpError("Не удалось сохранить каталог: HTTP "+res.status,res.status);
 }
 export async function inviteReader(token,folderId,email) {
   return driveRequest(token,"/files/"+encodeURIComponent(folderId)+"/permissions?sendNotificationEmail=true",{
@@ -65,3 +69,4 @@ export async function trashFolder(token,folderId) {
     body:JSON.stringify({trashed:true})
   });
 }
+

@@ -1,4 +1,4 @@
-name: Deploy complete Tank guide to GitHub Pages
+name: Deploy Tank guide and MediaVault to GitHub Pages
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -24,6 +25,29 @@ jobs:
       - name: Checkout deployment package
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: media-vault/package-lock.json
+
+      - name: Install MediaVault test dependencies
+        run: |
+          npm ci --prefix media-vault
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --prefix media-vault playwright install --with-deps chromium
+
+      - name: Verify MediaVault
+        working-directory: media-vault
+        run: |
+          for module in ./*.js; do
+            node --input-type=module --check < "$module"
+          done
+          npm test
+          CHROMIUM_PATH="$(node -p 'require("playwright").chromium.executablePath()')" npm run test:browser
+
       - name: Restore complete local site
         run: |
           mkdir site
@@ -37,6 +61,13 @@ jobs:
           test -d site/asset-library/assets
           test -f site/asset-library/embeds/heroes/anubarak.html
 
+      - name: Include MediaVault in the published site
+        run: |
+          mkdir -p site/media-vault
+          rsync -a --exclude=node_modules --exclude=tests --exclude='package*.json' --exclude=README.md media-vault/ site/media-vault/
+          test -f site/media-vault/index.html
+          test -f site/media-vault/sw.js
+
       - name: Verify local HTML and asset links
         run: node scripts/check-static-links.mjs site
 
@@ -48,9 +79,51 @@ jobs:
         with:
           path: site
 
-      - name: Let the legacy branch-source build finish
-        run: sleep 30
+      - name: Wait for the legacy Pages build when necessary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const {data: pages} = await github.rest.repos.getPages({owner, repo});
+            if (pages.build_type !== 'legacy') {
+              core.info('Pages uses workflow publishing; no legacy build to wait for.');
+              return;
+            }
+            const deadline = Date.now() + 10 * 60 * 1000;
+            let completedSnapshot = null;
+            while (Date.now() < deadline) {
+              const runs = (await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                owner, repo, head_sha: context.sha, per_page: 100
+              })).filter(run =>
+                run.head_sha === context.sha && run.path === 'dynamic/pages/pages-build-deployment'
+              );
+              const active = runs.filter(run => run.status !== 'completed');
+              if (runs.length > 0 && active.length === 0) {
+                const snapshot = runs.map(run => run.id + ':' + run.run_attempt).sort().join(',');
+                // Require two stable reads to include late registration or retries.
+                if (snapshot === completedSnapshot) {
+                  const branch = context.ref.replace(/^refs\/heads\//, '');
+                  const {data: head} = await github.rest.repos.getBranch({owner, repo, branch});
+                  if (head.commit.sha !== context.sha) {
+                    core.setFailed('This revision was superseded. Let the deployment for the latest branch commit finish.');
+                    return;
+                  }
+                  core.info('Legacy Pages runs for this revision are complete: ' + snapshot);
+                  return;
+                }
+                completedSnapshot = snapshot;
+                core.info('Legacy Pages build completed; confirming a stable run list.');
+              } else {
+                completedSnapshot = null;
+                core.info(runs.length === 0
+                  ? 'Waiting to observe the legacy Pages run for this revision.'
+                  : 'Waiting for legacy Pages runs: ' + active.map(run => run.id + ' (' + run.status + ')').join(', '));
+              }
+              await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            core.setFailed('Could not confirm that the legacy Pages build for this revision finished within 10 minutes. Check the pages-build-deployment run, then rerun this workflow; alternatively select Settings > Pages > Source > GitHub Actions to remove the competing branch build.');
 
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+

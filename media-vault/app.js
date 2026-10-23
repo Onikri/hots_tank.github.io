@@ -8,18 +8,20 @@ const $=id=>document.getElementById(id);
 const labels={all:"Все материалы",video:"Видео",audio:"Музыка",manga:"Манга",
   book:"Книги",image:"Изображения"};
 const icons={video:"▶",audio:"♫",manga:"▤",book:"▧",image:"▧"};
-const state={user:null,admin:false,token:null,key:null,salt:null,catalog:null,
+const state={user:null,admin:false,token:null,tokenExpiresAt:0,key:null,salt:null,catalog:null,
   libraryId:new URLSearchParams(location.search).get("library")||
     localStorage.getItem("mediavault_library")||"",
   category:"all",query:"",worker:null,openUrls:[],book:null};
 let noticeTimer=null;
+let tokenTimer=null;
+let workerRegistration=null;
 const thumbUrls=new Map();
 function show(id,yes=true){$(id).classList.toggle("hidden",!yes);}
 function toast(message,bad=false){
   const node=$("toast");node.textContent=message;node.style.borderColor=bad?"#a45f66":"#496a68";
   show("toast");clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>show("toast",false),5500);
 }
-function explain(e){toast(e?.message||String(e),true);console.error(e);}
+function explain(e){if(e?.status===401)expireDrive();toast(e?.message||String(e),true);console.error(e);}
 function updateStatus(text){$("status").textContent=text;}
 function saveLibraryId(id){state.libraryId=id;localStorage.setItem("mediavault_library",id);$("libraryId").value=id;}
 async function hashEmail(email){
@@ -41,8 +43,9 @@ async function askToken(scope){
   await googleReady();
   return new Promise((resolve,reject)=>{
     const client=google.accounts.oauth2.initTokenClient({
-      client_id:cfg.googleClientId,scope,prompt:"select_account",
-      callback:r=>r.error?reject(Error(r.error_description||r.error)):resolve(r.access_token),
+      client_id:cfg.googleClientId,scope,prompt:state.user?"":"select_account",
+      ...(state.user?{login_hint:state.user.email}:{}),
+      callback:r=>r.error?reject(Error(r.error_description||r.error)):resolve(r),
       error_callback:()=>reject(Error("Окно авторизации Google закрыто или заблокировано."))
     });
     client.requestAccessToken();
@@ -59,7 +62,7 @@ async function userFromToken(token){
 async function login(){
   try {
     if(!validConfig()) throw Error("Сначала укажи Google OAuth Client ID в config.js. Инструкция — в README.");
-    const token=await askToken("openid email profile");
+    const {access_token:token}=await askToken("openid email profile");
     const user=await userFromToken(token);
     state.user=user;
     state.admin=(await hashEmail(user.email))===cfg.adminEmailSha256;
@@ -74,20 +77,35 @@ async function connectDrive(){
   try{
     if(!state.user) throw Error("Сначала войди в Google.");
     const scope="openid email profile https://www.googleapis.com/auth/"+(state.admin?"drive":"drive.readonly");
-    const token=await askToken(scope);
+    const result=await askToken(scope);
+    const token=result.access_token;
     const actual=await userFromToken(token);
     if(actual.sub!==state.user.sub) throw Error("Для Drive нужно выбрать тот же Google-аккаунт, что и при входе.");
     state.token=token;
-    show("driveBtn",false);
-    show("setupPanel");
+    state.tokenExpiresAt=Date.now()+Number(result.expires_in||3600)*1000;
+    clearTimeout(tokenTimer);
+    tokenTimer=setTimeout(expireDrive,Math.max(0,state.tokenExpiresAt-Date.now()-15000));
+    $("driveBtn").textContent="Обновить доступ к Drive";
+    show("driveBtn");
+    show("setupPanel",!state.catalog);
     show("createRow",state.admin);
     show("createBtn",state.admin);
     $("libraryId").value=state.libraryId;
-    updateStatus("Drive подключён"+(state.admin?" · админ":""));
+    await sessionToWorker();
+    if(state.catalog)enterLibrary();
+    else updateStatus("Drive подключён"+(state.admin?" · админ":""));
     $("notice").querySelector("strong").textContent="Google Drive подключён";
     $("notice").querySelector("p").textContent="Введи ID библиотеки (или открой приглашение) и секретную фразу. Администратор может создать новую библиотеку.";
     toast("Drive подключён. Токен хранится только в памяти браузера.");
   }catch(e){explain(e);}
+}
+function expireDrive(){
+  if(!state.user)return;
+  clearTimeout(tokenTimer);state.token=null;state.tokenExpiresAt=0;
+  navigator.serviceWorker?.controller?.postMessage({type:"CLEAR_SESSION"});
+  $("driveBtn").textContent="Подключить Drive заново";show("driveBtn");
+  updateStatus("Обнови доступ к Drive");
+  toast("Срок доступа к Drive истёк. Нажми «Подключить Drive заново».",true);
 }
 async function unlock(){
   try{
@@ -143,9 +161,15 @@ function enterLibrary(){
 }
 async function registerWorker(){
   if(!("serviceWorker" in navigator))return;
-  try{
+  if(workerRegistration)return workerRegistration;
+  workerRegistration=(async()=>{try{
     await navigator.serviceWorker.register("./sw.js",{scope:"./"});
-    await navigator.serviceWorker.ready;
+    let readyTimer;
+    try{
+      await Promise.race([navigator.serviceWorker.ready,new Promise((resolve,reject)=>{
+        readyTimer=setTimeout(()=>reject(Error("Service Worker не активировался")),5000);
+      })]);
+    }finally{clearTimeout(readyTimer);}
     if(navigator.serviceWorker.controller) state.worker=navigator.serviceWorker.controller;
     else {
       await new Promise(resolve=>{
@@ -155,20 +179,32 @@ async function registerWorker(){
       state.worker=navigator.serviceWorker.controller;
     }
   }catch(e){console.warn("Service Worker недоступен:",e);}
+  })();
+  return workerRegistration;
+}
+function workerSession(){
+  if(!state.token||!state.key||!state.catalog||Date.now()>=state.tokenExpiresAt)return null;
+  return {type:"SESSION",token:state.token,key:state.key,items:state.catalog.items};
 }
 async function sessionToWorker(){
-  if(!state.worker) await registerWorker();
-  state.worker=navigator.serviceWorker?.controller||state.worker;
-  if(state.worker && state.key && state.catalog) {
-    const channel=new MessageChannel();
-    const wait=new Promise(resolve=>{
-      channel.port1.onmessage=resolve;
-      setTimeout(resolve,1500);
-    });
-    state.worker.postMessage({type:"SESSION",token:state.token,key:state.key,
-      items:state.catalog.items},[channel.port2]);
-    await wait;
-  }
+  try{
+    if(!state.worker) await registerWorker();
+    state.worker=navigator.serviceWorker?.controller||state.worker;
+    const session=workerSession();
+    if(state.worker && session) {
+      const channel=new MessageChannel();
+      const wait=new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>{channel.port1.close();reject(Error("Потоковый обработчик не ответил. Обнови страницу."));},5000);
+        channel.port1.onmessage=event=>{
+          clearTimeout(timer);channel.port1.close();
+          if(event.data?.ready)resolve();
+          else reject(Error("Потоковый обработчик отклонил сеанс."));
+        };
+      });
+      state.worker.postMessage(session,[channel.port2]);
+      await wait;
+    }
+  }catch(error){state.worker=null;console.warn("Потоковый обработчик недоступен:",error);}
 }
 function renderLibrary(){
   const grid=$("libraryGrid");grid.replaceChildren();
@@ -297,6 +333,9 @@ async function readWhole(item,silent=false){
 }
 function objectUrl(blob){const u=URL.createObjectURL(blob);state.openUrls.push(u);return u;}
 function clearViewer(){
+  for(const media of $("viewerContent").querySelectorAll("video,audio")){
+    media.pause();media.removeAttribute("src");media.load();
+  }
   if(state.book){try{state.book.destroy();}catch{} state.book=null;}
   $("viewerContent").replaceChildren();$("viewerTools").replaceChildren();
   for(const u of state.openUrls){if(typeof u==="string") URL.revokeObjectURL(u); else u.customCleanup?.();}
@@ -326,7 +365,9 @@ async function openViewer(item){
         }catch(e){explain(e);}
       };
       addTool("Загрузить файл целиком (резервный режим)",fallback);
-      if(state.worker){
+      await sessionToWorker();
+      if(!media.isConnected)return;
+      if(state.worker&&state.token){
         media.src=new URL("./__media__/"+encodeURIComponent(item.id),location.href).href;
         media.addEventListener("error",()=>toast("Поток недоступен. Попробуй резервный режим.",true),{once:true});
         media.play().catch(()=>{});
@@ -383,12 +424,15 @@ async function openViewer(item){
   }catch(e){explain(e);$("viewerContent").textContent="Не удалось открыть: "+e.message;}
 }
 function logout(){
+  clearTimeout(tokenTimer);
   navigator.serviceWorker?.controller?.postMessage({type:"CLEAR_SESSION"});
   for(const url of thumbUrls.values())URL.revokeObjectURL(url);thumbUrls.clear();
-  state.user=null;state.admin=false;state.token=null;state.key=null;state.salt=null;state.catalog=null;
+  state.user=null;state.admin=false;state.token=null;state.tokenExpiresAt=0;state.key=null;state.salt=null;state.catalog=null;
   closeViewer();show("setupPanel",false);show("adminPanel",false);show("uploadBtn",false);
   show("driveBtn",false);show("logoutBtn",false);show("notice");
   $("loginBtn").disabled=false;$("loginBtn").textContent="Войти через Google";
+  $("driveBtn").textContent="Подключить Drive";
+  checkSetup();
   updateStatus("Не подключено");renderLibrary();
 }
 function wireUI(){
@@ -396,7 +440,7 @@ function wireUI(){
   $("logoutBtn").onclick=logout;$("unlockBtn").onclick=unlock;$("createBtn").onclick=createLibrary;
   $("primaryBtn").onclick=()=>state.catalog?
     document.getElementById("librarySection").scrollIntoView({behavior:"smooth"}):
-    (show("setupPanel",!!state.token),state.token?$("passphrase").focus():login());
+    (show("setupPanel",!!state.token),state.token?$("passphrase").focus():(state.user?connectDrive():login()));
   $("selectFilesBtn").onclick=()=>$("filesInput").click();
   $("uploadBtn").onclick=()=>document.getElementById("adminPanel").scrollIntoView({behavior:"smooth"});
   $("filesInput").onchange=e=>{if(e.target.files?.length)uploadFiles(Array.from(e.target.files)).catch(explain);};
@@ -416,7 +460,28 @@ function checkSetup(){
   if(!validConfig()){
     $("notice").querySelector("strong").textContent="Требуется Google OAuth Client ID";
     $("notice").querySelector("p").textContent="Интерфейс опубликован, но для работы авторизации владелец должен создать Google OAuth Client ID и добавить его в config.js (см. README).";
+  }else if(!state.user){
+    $("notice").querySelector("strong").textContent="Библиотека закрыта";
+    $("notice").querySelector("p").textContent="Войди через Google, подключи Drive и введи секретную фразу библиотеки.";
   }
   $("libraryId").value=state.libraryId;
 }
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.addEventListener("message",event=>{
+    if(event.data?.type==="SESSION_REQUIRED"){
+      const session=workerSession();
+      event.ports[0]?.postMessage(session||{type:"SESSION_UNAVAILABLE"});
+      if(!session&&state.user)expireDrive();
+    }
+    if(event.data?.type==="DRIVE_AUTH_REQUIRED")expireDrive();
+  });
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{
+    state.worker=navigator.serviceWorker.controller;
+    sessionToWorker().catch(console.warn);
+  });
+}
+window.addEventListener("focus",()=>{
+  if(state.token&&Date.now()>=state.tokenExpiresAt)expireDrive();
+});
 wireUI();checkSetup();registerWorker().catch(console.warn);
+
