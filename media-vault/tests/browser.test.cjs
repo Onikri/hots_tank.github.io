@@ -172,10 +172,14 @@ async function main() {
   await owner.locator('#adminPanel').waitFor({state:'visible'});
   await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
   await owner.evaluate(()=>window.__tokenDuration=16);
-  await owner.locator('#driveBtn').click();
+  await owner.locator('.header-actions button[aria-label="Аккаунт"]').click();
+  await owner.locator('.account-drawer .solid-button').click();
+  await owner.locator('.account-drawer').waitFor({state:'hidden'});
   await owner.waitForFunction(()=>document.querySelector('#status').textContent==='Обнови доступ к Drive');
   await owner.evaluate(()=>window.__tokenDuration=3600);
-  await owner.locator('#driveBtn').click();
+  await owner.locator('.header-actions button[aria-label="Аккаунт"]').click();
+  await owner.locator('.account-drawer .solid-button').click();
+  await owner.locator('.account-drawer').waitFor({state:'hidden'});
   await owner.waitForFunction(()=>document.querySelector('#status').textContent.includes('библиотека открыта'));
   assert.equal(await owner.locator('#setupPanel').isVisible(),false,'Reconnect preserves unlocked library without another phrase');
   assert.equal(await owner.locator('.media-card').count(),3);
