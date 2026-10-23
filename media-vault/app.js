@@ -282,7 +282,7 @@ function objectUrl(blob){const u=URL.createObjectURL(blob);state.openUrls.push(u
 function clearViewer(){
   if(state.book){try{state.book.destroy();}catch{} state.book=null;}
   $("viewerContent").replaceChildren();$("viewerTools").replaceChildren();
-  for(const u of state.openUrls)URL.revokeObjectURL(u);
+  for(const u of state.openUrls){if(typeof u==="string") URL.revokeObjectURL(u); else u.customCleanup?.();}
   state.openUrls=[];
 }
 function closeViewer(){show("viewer",false);clearViewer();}
