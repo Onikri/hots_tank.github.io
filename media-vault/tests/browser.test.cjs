@@ -186,10 +186,13 @@ async function main() {
   const cdp=await ownerContext.newCDPSession(owner);
   await cdp.send('ServiceWorker.enable');
   await cdp.send('ServiceWorker.stopAllWorkers');
-  const streamed=await owner.evaluate(async id=>{
-    const response=await fetch('./__media__/'+id,{headers:{Range:'bytes=-16'}});
-    return {status:response.status,data:Array.from(new Uint8Array(await response.arrayBuffer()))};
-  },catalog.items.find(item=>item.name==='private-video.mp4').id);
+  const streamed=await owner.evaluate(async id=>Promise.race([
+    (async()=>{
+      const response=await fetch('./__media__/'+id,{headers:{Range:'bytes=-16'}});
+      return {status:response.status,data:Array.from(new Uint8Array(await response.arrayBuffer()))};
+    })(),
+    new Promise((_,reject)=>setTimeout(()=>reject(Error('Timed out restoring Service Worker stream')),15000))
+  ]),catalog.items.find(item=>item.name==='private-video.mp4').id);
   assert.equal(streamed.status,206,'Worker restores session after being stopped');
   assert.deepEqual(Buffer.from(streamed.data),(await fs.readFile(mp4)).subarray(-16),'Restarted worker returns exact decrypted suffix');
   const writesBefore=writes.length;
