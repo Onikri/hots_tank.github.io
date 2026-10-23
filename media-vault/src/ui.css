@@ -16,3 +16,6 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 /* Always-present targets for the encrypted Drive controller; React dialogs use delegates. */
 .auth-engine{position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden}
+
+.home-section.is-unlocked .welcome-strip,.home-section.is-unlocked .small-overview{display:none}
+.home-section.is-unlocked .section-intro{margin-bottom:15px}

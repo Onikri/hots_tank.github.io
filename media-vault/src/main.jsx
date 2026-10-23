@@ -64,7 +64,7 @@ function App(){
       if(typeof d.admin==='boolean')setIsAdmin(d.admin);
     };
     document.addEventListener('mediavault:library-updated',onUpdate);
-    const onAuth=event=>{const d=event.detail||{};setSignedIn(!!d.signedIn);setDriveConnected(!!d.driveConnected);setHasCatalog(!!d.unlocked);setIsAdmin(!!d.admin);};
+    const onAuth=event=>{const d=event.detail||{};setSignedIn(!!d.signedIn);setDriveConnected(!!d.driveConnected);setHasCatalog(!!d.unlocked);setIsAdmin(!!d.admin);if(d.driveConnected)setAccount(false);};
     document.addEventListener('mediavault:auth-state',onAuth);
     import('../app.js').catch(error=>{
       console.error('MediaVault initialization error',error);
@@ -120,7 +120,7 @@ function App(){
           </div>
         </header>
         <main className="main-content">
-          <section id="homeSection" className="home-section">
+          <section id="homeSection" className={"home-section"+(hasCatalog?" is-unlocked":"")}>
             <div className="section-intro"><span className="eyebrow">MEDIA<span className="orange-text">VAULT</span> / LIBRARY</span><h1>Твоя коллекция<span className="period">.</span></h1><p>Всё, что хочется пересматривать и перечитывать.</p></div>
             <div className="welcome-strip">
               <div className="welcome-mark"><BookOpen size={28} strokeWidth={1.6}/><div className="welcome-mark-spark">✳</div></div>
@@ -152,8 +152,8 @@ function App(){
             </div>
           </section>
           <section id="librarySection" className="catalog-section">
-            <div className="section-row catalogue-title"><div><span className="eyebrow">КАТАЛОГ</span><h2>Моя библиотека <span className="title-count">{counts.all}</span></h2></div><button className="add-small" type="button" onClick={addMedia}><Plus size={18}/> Добавить</button></div>
-            <div className="search-controls"><label className="search-field" htmlFor="searchInput"><Search size={21}/><input type="search" id="searchInput" placeholder="Поиск по названию" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="Очистить поиск" type="button" onClick={()=>{setQuery('');document.getElementById('searchInput')?.dispatchEvent(new Event('input',{bubbles:true}));}}><X size={16}/></button>}</label>
+            <div className="section-row catalogue-title"><div><span className="eyebrow">КАТАЛОГ</span><h2>Библиотека <span className="title-count">{counts.all}</span></h2></div><button className="add-small" type="button" onClick={addMedia}><Plus size={18}/> Добавить</button></div>
+            <div className="search-controls"><label className="search-field" htmlFor="searchInput"><Search size={21}/><input type="search" id="searchInput" placeholder="Поиск по названию" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="Очистить поиск" type="button" onClick={()=>{const input=document.getElementById('searchInput');if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();}setQuery('');}}><X size={16}/></button>}</label>
               <motion.button whileTap={{scale:.93}} type="button" className={'filter-button'+(filterOpen?' opened':'')} aria-label="Фильтры и сортировка" onClick={()=>setFilterOpen(!filterOpen)}><SlidersHorizontal size={20}/></motion.button></div>
             <CategoryTabs current={category} counts={counts} choose={chooseCategory}/>
             <div className="result-heading"><div><strong id="sectionTitle">Все материалы</strong><span id="count">0 файлов</span></div><div className="result-view-buttons"><button className={view==='grid'?'active':''} title="Плитка" aria-label="Плитка" onClick={()=>setView('grid')}><LayoutGrid size={18}/></button><button className={view==='list'?'active':''} title="Список" aria-label="Список" onClick={()=>setView('list')}><Rows3 size={18}/></button></div></div>

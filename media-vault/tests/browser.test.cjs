@@ -84,6 +84,7 @@ async function signIn(page) {
   await page.waitForFunction(()=>document.querySelector('#loginBtn').disabled);
   await page.locator('.account-drawer .solid-button').click();
   await page.locator('#setupPanel').waitFor({state:'visible'});
+  await page.locator('.account-drawer').waitFor({state:'hidden'});
   assert.equal(await page.locator('#driveBtn').isVisible(),true,'Drive reconnect remains available');
 }
 
