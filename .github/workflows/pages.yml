@@ -25,6 +25,17 @@ jobs:
       - name: Checkout deployment package
         uses: actions/checkout@v4
 
+      - name: Set up Node.js for React build
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build React MediaVault
+        run: |
+          npm install --prefix media-vault --no-audit --no-fund --no-package-lock
+          npm run build --prefix media-vault
+          node --test media-vault/tests/range.test.cjs
+
       - name: Restore complete local site
         run: |
           mkdir site
@@ -41,9 +52,11 @@ jobs:
       - name: Include MediaVault in the published site
         run: |
           mkdir -p site/media-vault
-          cp media-vault/{index.html,app.js,style.css,config.js,crypto.js,drive.js,sw.js,icon.svg,manifest.webmanifest,selftest.html} site/media-vault/
+          cp -a media-vault/dist/. site/media-vault/
+          cp media-vault/{config.js,sw.js,icon.svg,manifest.webmanifest,selftest.html,crypto.js} site/media-vault/
           test -f site/media-vault/index.html
           test -f site/media-vault/sw.js
+          test -d site/media-vault/assets
 
       - name: Verify local HTML and asset links
         run: node scripts/check-static-links.mjs site

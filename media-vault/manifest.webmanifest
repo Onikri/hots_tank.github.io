@@ -1,1 +1,17 @@
-{"name":"MediaVault — личная медиатека","short_name":"MediaVault","start_url":"./","display":"standalone","background_color":"#0b0f18","theme_color":"#0b0f18","lang":"ru","icons":[{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+  "name": "MediaVault — личная медиатека",
+  "short_name": "MediaVault",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#131316",
+  "theme_color": "#1a1a1e",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

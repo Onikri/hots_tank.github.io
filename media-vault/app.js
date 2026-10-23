@@ -11,7 +11,7 @@ const icons={video:"▶",audio:"♫",manga:"▤",book:"▧",image:"▧"};
 const state={user:null,admin:false,token:null,tokenExpiresAt:0,key:null,salt:null,catalog:null,
   libraryId:new URLSearchParams(location.search).get("library")||
     localStorage.getItem("mediavault_library")||"",
-  category:"all",query:"",worker:null,openUrls:[],book:null};
+  category:"all",query:"",sort:"newest",worker:null,openUrls:[],book:null};
 let noticeTimer=null;
 let tokenTimer=null;
 let workerRegistration=null;
@@ -221,9 +221,22 @@ function renderLibrary(){
     const p=document.createElement("p");p.textContent=state.catalog?
       "Добавь файлы или попробуй другой раздел.":"Войди через Google и открой каталог.";
     empty.innerHTML='<div class="empty-icon">◈</div>';
-    empty.append(h,p);grid.append(empty);return;
+    empty.append(h,p);grid.append(empty);
+    const counts={all:state.catalog?.items.length||0,video:0,manga:0,book:0,audio:0,image:0};
+    for(const item of state.catalog?.items||[])if(item.category in counts)counts[item.category]++;
+    document.dispatchEvent(new CustomEvent("mediavault:library-updated",{detail:{counts,category:state.category}}));
+    return;
   }
-  for(const item of items.slice().reverse()){
+  const sorted=items.slice().sort((a,b)=>{
+    if(state.sort==="name")return a.name.localeCompare(b.name,"ru");
+    if(state.sort==="size")return b.size-a.size;
+    const delta=new Date(b.addedAt).getTime()-new Date(a.addedAt).getTime();
+    return state.sort==="oldest"?-delta:delta;
+  });
+  const counts={all:state.catalog?.items.length||0,video:0,manga:0,book:0,audio:0,image:0};
+  for(const item of state.catalog?.items||[])if(item.category in counts)counts[item.category]++;
+  document.dispatchEvent(new CustomEvent("mediavault:library-updated",{detail:{counts,category:state.category}}));
+  for(const item of sorted){
     const card=document.createElement("button");card.className="media-card";
     const cover=document.createElement("div");cover.className="cover "+item.category;
     const symbol=document.createElement("b");symbol.textContent=icons[item.category];
@@ -449,12 +462,13 @@ function wireUI(){
   window.addEventListener("keydown",e=>{if(e.key==="Escape")closeViewer();});
   $("viewer").addEventListener("click",e=>{if(e.target===$("viewer"))closeViewer();});
   $("searchInput").addEventListener("input",e=>{state.query=e.target.value;renderLibrary();});
+  $("sortSelect").addEventListener("change",e=>{state.sort=e.target.value;renderLibrary();});
   document.querySelectorAll("[data-category]").forEach(btn=>btn.onclick=()=>{
     document.querySelectorAll("[data-category]").forEach(b=>b.classList.remove("active"));
     btn.classList.add("active");state.category=btn.dataset.category;renderLibrary();
     document.querySelector(".sidebar").classList.remove("open");
   });
-  $("mobileMenu").onclick=()=>document.querySelector(".sidebar").classList.toggle("open");
+  // React owns the mobile sidebar and account navigation.
 }
 function checkSetup(){
   if(!validConfig()){

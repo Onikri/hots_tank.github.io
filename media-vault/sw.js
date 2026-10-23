@@ -1,6 +1,6 @@
 /* Local per-device streaming proxy. OAuth tokens and CryptoKeys stay in worker RAM. */
 const STORAGE_CACHE="mediavault-ciphertext-v1";
-const SHELL_CACHE="mediavault-app-v2";
+const SHELL_CACHE="mediavault-app-v3";
 const CHUNK_SIZE=4*1024*1024;
 const CHUNK_LIMIT=160;
 // A worker may control several tabs with different libraries or accounts.
@@ -11,7 +11,7 @@ function b64(s){return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
 self.addEventListener("install",event=>{
   event.waitUntil((async()=>{
     const cache=await caches.open(SHELL_CACHE);
-    await cache.addAll(["./","./index.html","./style.css","./app.js","./crypto.js","./drive.js","./config.js"]);
+    await cache.addAll(["./","./index.html","./config.js"]);
     await self.skipWaiting();
   })());
 });
