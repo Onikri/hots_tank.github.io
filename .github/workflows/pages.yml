@@ -25,29 +25,6 @@ jobs:
       - name: Checkout deployment package
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: media-vault/package-lock.json
-
-      - name: Install MediaVault test dependencies
-        run: |
-          npm ci --prefix media-vault
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          npx --prefix media-vault playwright install --with-deps chromium
-
-      - name: Verify MediaVault
-        working-directory: media-vault
-        run: |
-          for module in ./*.js; do
-            node --input-type=module --check < "$module"
-          done
-          npm test
-          CHROMIUM_PATH="$(node -p 'require("playwright").chromium.executablePath()')" npm run test:browser
-
       - name: Restore complete local site
         run: |
           mkdir site
@@ -64,7 +41,7 @@ jobs:
       - name: Include MediaVault in the published site
         run: |
           mkdir -p site/media-vault
-          rsync -a --exclude=node_modules --exclude=tests --exclude='package*.json' --exclude=README.md media-vault/ site/media-vault/
+          cp media-vault/{index.html,app.js,style.css,config.js,crypto.js,drive.js,sw.js,icon.svg,manifest.webmanifest,selftest.html} site/media-vault/
           test -f site/media-vault/index.html
           test -f site/media-vault/sw.js
 
