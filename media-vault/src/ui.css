@@ -19,3 +19,5 @@
 
 .home-section.is-unlocked .welcome-strip,.home-section.is-unlocked .small-overview{display:none}
 .home-section.is-unlocked .section-intro{margin-bottom:15px}
+/* On 320px phones the long connection status must never collide with the wordmark. */
+@media(max-width:360px){.app-header .connection-status{display:none}}

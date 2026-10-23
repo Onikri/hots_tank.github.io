@@ -51,8 +51,15 @@ async function run(){
     assert.equal(await page.locator('.account-drawer .solid-button').isVisible(),true);
     await page.locator('.account-drawer button[aria-label="Закрыть"]').click();
     await page.getByRole('dialog',{name:'Аккаунт'}).waitFor({state:'hidden'});
-    const size=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth}));
+    const size=await page.evaluate(()=>{
+      const brand=document.querySelector('.mobile-only-header .brand-wordmark');
+      const search=document.querySelector('.header-actions button[aria-label="Перейти к поиску"]');
+      const a=brand?.getBoundingClientRect(),b=search?.getBoundingClientRect();
+      return {viewport:innerWidth,scroll:document.documentElement.scrollWidth,
+        brandRight:a?.right,searchLeft:b?.left};
+    });
     assert.ok(size.scroll<=size.viewport+1,'No horizontal overflow at width '+width+': '+JSON.stringify(size));
+    if(width<=760)assert.ok(size.brandRight<size.searchLeft,'Mobile header wordmark must not overlap the search control');
     assert.equal(await page.locator('.bottom-nav').isVisible(),width<=760);
     assert.equal(await page.locator('.desktop-rail').isVisible(),width>760);
     assert.deepEqual(errors,[],'No runtime errors at width '+width);
