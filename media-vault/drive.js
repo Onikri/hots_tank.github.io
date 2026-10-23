@@ -1,0 +1,67 @@
+// Drive is the only persistent backend. Browser OAuth access token is never stored.
+const API = "https://www.googleapis.com/drive/v3";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
+export async function driveRequest(token, path, options={}) {
+  const {headers={},...other}=options;
+  const res=await fetch(API+path,{...other,headers:{Authorization:"Bearer "+token,...headers}});
+  if (!res.ok) {
+    let msg;
+    try { const body=await res.json();msg=body.error?.message || res.statusText; }
+    catch { msg=res.statusText; }
+    throw Error("Google Drive ("+res.status+"): "+msg);
+  }
+  if (res.status===204) return {};
+  return res.json();
+}
+export async function driveDownload(token, id) {
+  const res=await fetch(API+"/files/"+encodeURIComponent(id)+"?alt=media",
+    {headers:{Authorization:"Bearer "+token}});
+  if(!res.ok) throw Error("Ошибка скачивания из Drive: HTTP "+res.status);
+  return res.arrayBuffer();
+}
+export async function readEnvelope(token,id) {
+  const data=await driveDownload(token,id);
+  return JSON.parse(new TextDecoder().decode(data));
+}
+export async function createFolder(token,name,parentId) {
+  return driveRequest(token,"/files?fields=id,name,webViewLink",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,mimeType:"application/vnd.google-apps.folder",
+      parents:parentId?[parentId]:undefined})
+  });
+}
+export async function folderExists(token,id) {
+  if(!id) return false;
+  try { await driveRequest(token,"/files/"+encodeURIComponent(id)+"?fields=id,mimeType");return true; }
+  catch { return false; }
+}
+export async function uploadSmall(token,name,blob,parentId) {
+  // The ciphertext chunk is 4 MiB + 16 bytes: safely below multipart 5 MB guidance.
+  const boundary="media_vault_"+crypto.randomUUID().replaceAll("-","");
+  const metadata={name,mimeType:"application/octet-stream",parents:[parentId]};
+  const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n",
+    JSON.stringify(metadata),"\r\n--"+boundary+"\r\nContent-Type: application/octet-stream\r\n\r\n",
+    blob,"\r\n--"+boundary+"--"]);
+  const res=await fetch(UPLOAD+"/files?uploadType=multipart&fields=id,name",{
+    method:"POST",headers:{Authorization:"Bearer "+token,
+      "Content-Type":"multipart/related; boundary="+boundary},body});
+  if(!res.ok) throw Error("Ошибка загрузки в Drive: HTTP "+res.status+" "+(await res.text()).slice(0,200));
+  return res.json();
+}
+export async function replaceSmall(token,id,blob) {
+  const res=await fetch(UPLOAD+"/files/"+encodeURIComponent(id)+"?uploadType=media",{
+    method:"PATCH",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:blob});
+  if(!res.ok) throw Error("Не удалось сохранить каталог: HTTP "+res.status);
+}
+export async function inviteReader(token,folderId,email) {
+  return driveRequest(token,"/files/"+encodeURIComponent(folderId)+"/permissions?sendNotificationEmail=true",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({type:"user",role:"reader",emailAddress:email})
+  });
+}
+export async function trashFolder(token,folderId) {
+  return driveRequest(token,"/files/"+encodeURIComponent(folderId)+"?fields=id,trashed",{
+    method:"PATCH",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({trashed:true})
+  });
+}
