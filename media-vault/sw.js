@@ -36,20 +36,31 @@ self.addEventListener("fetch",event=>{
   }
 });
 async function encryptedBlock(fileId){
-  const cache=await caches.open(STORAGE_CACHE);
+  let cache=null;
+  try{cache=await caches.open(STORAGE_CACHE);}catch{}
   const cacheKey="https://mediavault.invalid/cipher/"+encodeURIComponent(fileId);
-  const cached=await cache.match(cacheKey);
-  if(cached) return cached.arrayBuffer();
+  if(cache){
+    try{const hit=await cache.match(cacheKey);if(hit)return hit.arrayBuffer();}catch{}
+  }
   if(!session?.token) throw Error("Авторизуйтесь заново — сеанс Drive истёк.");
-  const resp=await fetch("https://www.googleapis.com/drive/v3/files/"+
-      encodeURIComponent(fileId)+"?alt=media",
-      {headers:{Authorization:"Bearer "+session.token}});
-  if(!resp.ok) throw Error("Google Drive вернул HTTP "+resp.status);
-  const data=await resp.arrayBuffer();
-  await cache.put(cacheKey,new Response(data,{headers:{"Content-Type":"application/octet-stream"}}));
-  const keys=await cache.keys();
-  if(keys.length>CHUNK_LIMIT) for(const key of keys.slice(0,keys.length-CHUNK_LIMIT))
-    await cache.delete(key);
+  const url="https://www.googleapis.com/drive/v3/files/"+encodeURIComponent(fileId)+"?alt=media";
+  let data=null;
+  for(let attempt=0;attempt<5;attempt++){
+    const resp=await fetch(url,{headers:{Authorization:"Bearer "+session.token}});
+    if(resp.ok){data=await resp.arrayBuffer();break;}
+    const errorBody=await resp.text();
+    const transient=[429,500,502,503,504].includes(resp.status) ||
+      (resp.status===403 && /rateLimitExceeded|userRateLimitExceeded/i.test(errorBody));
+    if(!transient||attempt===4)throw Error("Google Drive: HTTP "+resp.status);
+    await new Promise(resolve=>setTimeout(resolve,400*2**attempt+Math.random()*300));
+  }
+  if(!data)throw Error("Google Drive не прислал данные");
+  // Caching must not break playback if iOS or another browser rejects the quota.
+  if(cache)try{
+    await cache.put(cacheKey,new Response(data,{headers:{"Content-Type":"application/octet-stream"}}));
+    const keys=await cache.keys();
+    if(keys.length>CHUNK_LIMIT)for(const key of keys.slice(0,keys.length-CHUNK_LIMIT))await cache.delete(key);
+  }catch(error){console.debug("CacheStorage unavailable",error);}
   return data;
 }
 async function chunkPlain(item,n){
