@@ -1,0 +1,19 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MediaVault — Crypto self-test</title><style>body{font:15px system-ui;background:#0b0f18;color:#edf2fd;padding:2rem;max-width:760px;margin:auto}pre{white-space:pre-wrap;background:#1e2b37;padding:18px;border-radius:8px}</style><h1>MediaVault: локальная проверка шифрования</h1><p>Этот тест не обращается к Google Drive и не использует реальные ключи.</p><pre id="result">Проверка…</pre><script type="module">
+import {newSalt,deriveVaultKey,sealChunk,openChunk,sealIndex,openIndex} from "./crypto.js";
+const out=document.getElementById("result");
+try{
+ const salt=newSalt(),key=await deriveVaultKey("this is only a local test phrase",salt);
+ const input=new TextEncoder().encode("MediaVault chunk test");
+ const chunk=await sealChunk(input,key,"sample-id",0);
+ const restored=await openChunk(chunk.ciphertext,key,"sample-id",0,chunk.iv);
+ if(new TextDecoder().decode(restored)!=="MediaVault chunk test")throw Error("Chunk differs");
+ const record={version:1,folderId:"demo",items:[{id:"a",name:"test"}]};
+ const wrapped=await sealIndex(record,key,salt);
+ const opened=await openIndex(wrapped,key);
+ if(opened.items[0].name!=="test")throw Error("Index differs");
+ let tampered=false;
+ try{await openChunk(chunk.ciphertext,key,"sample-id",1,chunk.iv);}catch{tampered=true;}
+ if(!tampered)throw Error("AAD tampering not detected");
+ out.textContent="✓ AES-256-GCM chunk round-trip\n✓ Encrypted catalog round-trip\n✓ Tamper detection (wrong chunk index)\nГотово.";
+}catch(e){out.textContent="✕ "+e.stack;}
+</script></html>
