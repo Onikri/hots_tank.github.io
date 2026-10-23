@@ -255,10 +255,13 @@ function renderLibrary(){
     info.append(name,meta);card.append(cover,info);
     card.addEventListener("click",()=>openViewer(item));
     grid.append(card);
-    if(item.category==="image" && state.token && state.key){
+    if((item.category==="image"||item.category==="video") && state.token && state.key){
       const observer=new IntersectionObserver(entries=>{
-        if(entries.some(e=>e.isIntersecting)) {observer.disconnect();lazyThumbnail(item,cover);}
-      },{rootMargin:"100px"});
+        if(entries.some(e=>e.isIntersecting)){
+          observer.disconnect();
+          (item.category==="image"?lazyThumbnail(item,cover):lazyVideoThumbnail(item,cover)).catch(e=>console.debug("Превью:",e.message));
+        }
+      },{rootMargin:"80px"});
       observer.observe(card);
     }
   }
@@ -272,6 +275,40 @@ async function lazyThumbnail(item,cover){
     const img=document.createElement("img");img.alt="";img.loading="lazy";img.src=url;
     cover.append(img);
   }catch(e){console.debug("Предпросмотр недоступен",e.message);}
+}
+async function lazyVideoThumbnail(item,cover){
+  if(!cover.isConnected||!state.token||!state.key||item.mime!=="video/mp4")return;
+  let url=thumbUrls.get(item.id);
+  if(url){
+    const cached=document.createElement("img");cached.alt="Превью видео";cached.src=url;cover.append(cached);return;
+  }
+  await sessionToWorker();
+  if(!state.worker||!cover.isConnected)return;
+  const player=document.createElement("video");
+  player.muted=true;player.playsInline=true;player.preload="auto";
+  player.src=new URL("./__media__/"+encodeURIComponent(item.id),location.href).href;
+  try{
+    await new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>finish(Error("Истёк таймаут предпросмотра")),9500);
+      const clean=()=>{clearTimeout(timeout);player.removeEventListener("loadeddata",ready);player.removeEventListener("error",failed);};
+      const finish=error=>{clean();if(error)reject(error);else resolve();};
+      const ready=()=>finish();
+      const failed=()=>finish(Error("Не удалось получить кадр"));
+      player.addEventListener("loadeddata",ready,{once:true});
+      player.addEventListener("error",failed,{once:true});
+      player.load();
+    });
+    if(!cover.isConnected||!state.key||!player.videoWidth||!player.videoHeight)return;
+    const canvas=document.createElement("canvas");
+    canvas.width=240;canvas.height=340;
+    const ratio=Math.max(canvas.width/player.videoWidth,canvas.height/player.videoHeight);
+    const w=player.videoWidth*ratio,h=player.videoHeight*ratio;
+    canvas.getContext("2d").drawImage(player,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.72));
+    if(!blob||!cover.isConnected)return;
+    url=URL.createObjectURL(blob);thumbUrls.set(item.id,url);
+    const img=document.createElement("img");img.alt="Превью видео";img.loading="lazy";img.src=url;cover.append(img);
+  }finally{player.pause();player.removeAttribute("src");player.load();}
 }
 function formatSize(n){return n>=1024*1024*1024?(n/1024**3).toFixed(2)+" ГБ":
   n>=1024*1024?(n/1024**2).toFixed(1)+" МБ":Math.ceil(n/1024)+" КБ";}
