@@ -37,6 +37,7 @@ class FakeDrive:
         self.after_manifest_metadata = None
         self.manifest_written = False
         self.metadata_reads_after_manifest = 0
+        self.list_calls = 0
 
     def owner_email(self):
         return self.email
@@ -102,6 +103,7 @@ class FakeDrive:
         self.files[file_id]["trashed"] = True
 
     def list_children(self, parent, *, name=None, mime_type=None):
+        self.list_calls += 1
         return [self.metadata(file_id) for file_id, entry in self.files.items()
                 if parent in entry["parents"] and not entry["trashed"]
                 and (name is None or entry["name"] == name)
@@ -138,8 +140,17 @@ class VaultTests(unittest.TestCase):
         wrong = FakeDrive(email="somebody@example.test")
         with self.assertRaises(vault_drive.VaultError):
             vault_drive.VaultDrive(wrong)
+        self.assertEqual(wrong.upload_calls, [])
         self.assertEqual(wrong.files, {})
         self.assertNotIn(self.vault._key.hex(), repr(self.vault))
+
+    def test_season_reuses_recovery_manifest_scan(self):
+        self.vault.upload_file(self.file(), collection="Season", episode=1, source_identity="episode-one")
+        first_scan_calls = self.drive.list_calls
+        self.assertGreater(first_scan_calls, 0)
+        self.vault.upload_file(self.file("second.mp4"), collection="Season", episode=2, source_identity="episode-two")
+        self.assertEqual(self.drive.list_calls, first_scan_calls,
+                         "new episodes must not rescan every prior asset in the season")
 
     def test_private_initialization_and_phrase_unlock(self):
         root = self.drive.files[self.vault.catalog["folderId"]]

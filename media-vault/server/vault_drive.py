@@ -476,7 +476,10 @@ class VaultDrive:
                           "items": [item], "storage": storage, "completedAt": _now()}
             self._new_bytes("manifest.enc.json", _json(seal_catalog(checkpoint, self._key, self._salt)), asset_id)
             checkpoint_written = True
-            self._manifest_cache = None
+            # A season should scan existing recovery manifests once, not rescan
+            # every prior episode after each successful upload (quadratic I/O).
+            if self._manifest_cache is not None:
+                self._manifest_cache.append(copy.deepcopy(checkpoint))
             committed = self._commit_item(item, storage)
             if committed["id"] != item_id:
                 self._retry(lambda: self.drive.trash(asset_id))
