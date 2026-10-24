@@ -1,71 +1,81 @@
-// Visual and interaction smoke test for production React assets. No Google credentials.
+// Responsive smoke test for the restored React interface. Google is a fake provider.
+// Run after npm run build; no account credentials or external catalog are needed.
 const assert=require('node:assert/strict');
 const http=require('node:http');
 const fs=require('node:fs/promises');
 const path=require('node:path');
+const os=require('node:os');
 const {chromium}=require('playwright');
 const ROOT=path.resolve(__dirname,'..');
 let server,browser;
-async function createServer(){
+
+async function run(){
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'mediavault-ui-'));
+  const served=path.join(temp,'site');
+  await fs.cp(path.join(ROOT,'dist'),served,{recursive:true});
   server=http.createServer(async(req,res)=>{
-    const u=new URL(req.url,'http://127.0.0.1');
-    const relative=u.pathname.replace(/^\/media-vault\/?/,'')||'index.html';
-    if(!u.pathname.startsWith('/media-vault/')||relative.includes('..')){res.writeHead(404).end();return;}
-    let body,file;
-    for(const dir of [path.join(ROOT,'dist'),ROOT]){
-      const candidate=path.resolve(dir,relative);
-      if(!candidate.startsWith(dir+path.sep))continue;
-      try{body=await fs.readFile(candidate);file=candidate;break;}catch{}
-    }
-    if(!body){res.writeHead(404).end();return;}
-    const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
-    res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'}).end(body);
+    try{
+      const pathname=new URL(req.url,'http://localhost').pathname;
+      if(!pathname.startsWith('/media-vault/'))throw Error('Invalid path');
+      const relative=pathname.slice('/media-vault/'.length)||'index.html';
+      const file=path.resolve(served,relative);
+      if(!file.startsWith(served+path.sep))throw Error('Invalid path');
+      const body=await fs.readFile(file);
+      const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
+      res.writeHead(200,{'content-type':mime[path.extname(file)]||'application/octet-stream'}).end(body);
+    }catch{res.writeHead(404).end('Not found');}
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  return 'http://127.0.0.1:'+server.address().port+'/media-vault/';
-}
-async function run(){
-  const base=await createServer();
-  browser=await chromium.launch({headless:true,args:['--no-sandbox'],executablePath:process.env.CHROMIUM_PATH||undefined});
+  const base='http://127.0.0.1:'+server.address().port+'/media-vault/';
+  browser=await chromium.launch({headless:true,args:['--no-sandbox'],executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium'});
   const output=path.join(ROOT,'test-output');await fs.mkdir(output,{recursive:true});
   for(const width of [320,390,768,1280]){
     const context=await browser.newContext({viewport:{width,height:860},reducedMotion:'reduce',serviceWorkers:'block'});
-    await context.route('https://accounts.google.com/**',route=>route.fulfill({status:200,body:'window.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken:()=>{}})}}};',contentType:'text/javascript'}));
-    await context.route('https://cdn.jsdelivr.net/**',route=>route.fulfill({status:200,body:'',contentType:'text/javascript'}));
-    const page=await context.newPage();
-    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    context.setDefaultTimeout(20000);
+    await context.route('https://accounts.google.com/**',route=>route.fulfill({contentType:'text/javascript',body:'window.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}};'}));
+    await context.route('https://cdn.jsdelivr.net/**',route=>route.fulfill({contentType:'text/javascript',body:''}));
+    const page=await context.newPage(),errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
     const response=await page.goto(base,{waitUntil:'domcontentloaded'});
-    assert.equal(response.status(),200,'React page must load');
-    await page.getByRole('heading',{name:/Твоя коллекция/}).waitFor();
-    await page.locator('#libraryGrid .empty').waitFor({timeout:10000});
-    await page.locator('button[aria-label="Фильтры и сортировка"]').click();
-    await page.getByRole('dialog',{name:'Сортировка'}).waitFor();
-    await page.getByRole('button',{name:'По названию'}).click();
-    assert.equal(await page.locator('#sortSelect').inputValue(),'name');
-    const manga=page.locator('.category-tabs [data-category=manga]');
-    await manga.click();
-    await page.waitForFunction(()=>document.querySelector('#sectionTitle').textContent==='Манга');
-    const account=page.locator('.header-actions button[aria-label="Аккаунт"]');
-    await account.click();
-    await page.getByRole('dialog',{name:'Аккаунт'}).waitFor();
-    assert.equal(await page.locator('.account-drawer .solid-button').isVisible(),true);
-    await page.locator('.account-drawer button[aria-label="Закрыть"]').click();
-    await page.getByRole('dialog',{name:'Аккаунт'}).waitFor({state:'hidden'});
-    const size=await page.evaluate(()=>{
-      const brand=document.querySelector('.mobile-only-header .brand-wordmark');
-      const search=document.querySelector('.header-actions button[aria-label="Перейти к поиску"]');
-      const a=brand?.getBoundingClientRect(),b=search?.getBoundingClientRect();
-      return {viewport:innerWidth,scroll:document.documentElement.scrollWidth,
-        brandRight:a?.right,searchLeft:b?.left};
-    });
-    assert.ok(size.scroll<=size.viewport+1,'No horizontal overflow at width '+width+': '+JSON.stringify(size));
-    if(width<=760)assert.ok(size.brandRight<size.searchLeft,'Mobile header wordmark must not overlap the search control');
-    assert.equal(await page.locator('.bottom-nav').isVisible(),width<=760);
-    assert.equal(await page.locator('.desktop-rail').isVisible(),width>760);
-    assert.deepEqual(errors,[],'No runtime errors at width '+width);
-    await page.screenshot({path:path.join(output,`react-${width}.png`),fullPage:true});
-    console.log('PASS UI',width,'px; controls, filter, category, account, no overflow');
+    assert.equal(response.status(),200);
+    await page.getByRole('heading',{name:'Твоё пространство',exact:true}).waitFor();
+    const noOverflow=async view=>{
+      const size=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,
+        overflow:[...document.querySelectorAll('body *')].map(element=>({element:element.tagName+'.'+element.className,
+          right:Math.round(element.getBoundingClientRect().right),width:Math.round(element.getBoundingClientRect().width)}))
+          .filter(rect=>rect.width>0&&rect.right>innerWidth+1).slice(0,12)}));
+      assert.ok(size.scroll<=size.viewport+1,view+' has no overflow at '+width+'px: '+JSON.stringify(size));
+    };
+    await noOverflow('Home');
+    assert.equal(await page.locator('.bottom-nav').isVisible(),width<900);
+    assert.equal(await page.locator('.desktop-nav').isVisible(),width>=900);
+    await page.screenshot({path:path.join(output,'react-'+width+'.png'),fullPage:true});
+    const nav=width<900?page.getByRole('navigation',{name:'Мобильная навигация'}):page.getByRole('navigation',{name:'Основная навигация'});
+    await nav.getByRole('button',{name:'Библиотека',exact:true}).click();
+    await page.getByRole('heading',{name:'Моя библиотека',exact:true}).waitFor();
+    await page.locator('#searchInput').fill('Тестовый поиск');
+    assert.equal(await page.locator('#searchInput').inputValue(),'Тестовый поиск');
+    await page.getByRole('button',{name:'Манга',exact:true}).click();
+    assert.ok((await page.locator('.chip-active').textContent()).includes('Манга'));
+    await page.getByRole('button',{name:'Избранное',exact:true}).click();
+    assert.ok((await page.locator('.chip-active').textContent()).includes('Избранное'));
+    await noOverflow('Library');
+    await nav.getByRole('button',{name:'Импорт',exact:true}).click();
+    await page.getByRole('heading',{name:'Добавить аниме',exact:true}).waitFor();
+    assert.equal(await page.locator('#importVideoBtn').isDisabled(),true,'Locked users cannot export an import job');
+    await noOverflow('Server import');
+    await page.screenshot({path:path.join(output,'import-'+width+'.png'),fullPage:true});
+    await page.locator('#profileBtn').click();
+    await page.getByRole('heading',{name:'Мой профиль',exact:true}).waitFor();
+    assert.equal(await page.locator('#loginBtn').isVisible(),true);
+    await noOverflow('Profile');
+    await nav.getByRole('button',{name:'История',exact:true}).click();
+    await page.getByRole('heading',{name:'Недавно открытое',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Здесь продолжится твоя история',exact:true}).waitFor();
+    await noOverflow('History');
+    assert.deepEqual(errors,[],'No runtime errors at '+width+'px');
     await context.close();
+    console.log('PASS UI '+width+'px: restored home/library/profile/history, filters, search, responsive layout');
   }
 }
-run().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));});
+run().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));});

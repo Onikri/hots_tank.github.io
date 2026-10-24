@@ -1,25 +1,28 @@
 {
   "name": "media-vault",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test tests/range.test.cjs",
+    "test": "node --test tests/range.test.cjs tests/upload.test.cjs tests/upload.test.mjs tests/server-job.test.mjs",
     "test:browser": "node tests/browser.test.cjs",
-    "test:ui": "node tests/ui.test.cjs"
+    "test:ui": "node tests/ui.test.cjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "test:server": "python -m unittest discover -s tests -p 'test_*.py'",
+    "test:notebook": "python scripts/build-notebook.py --check"
   },
   "dependencies": {
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "lucide-react": "^0.468.0",
-    "motion": "^14.1.0",
-    "@radix-ui/react-separator": "^1.1.7",
-    "hls.js": "^1.6.13"
+    "motion": "14.1.0",
+    "@radix-ui/react-dialog": "1.1.15",
+    "@radix-ui/react-tabs": "1.1.13"
   },
   "devDependencies": {
     "vite": "7.1.12",

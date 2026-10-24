@@ -1,5 +1,5 @@
 // Local integration test: Google Identity and Drive are fake providers; no live credentials.
-// Run: node media-vault/tests/browser.test.cjs (requires Playwright, Chromium and ffmpeg).
+// Run: npm run test:browser (builds the production React app; requires Chromium).
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -9,7 +9,8 @@ const {execFileSync} = require('node:child_process');
 const {webcrypto, createHash} = require('node:crypto');
 const {chromium} = require('playwright');
 
-const ROOT = path.resolve(__dirname, '../..');
+const PROJECT = path.resolve(__dirname, '..');
+const ROOT = path.join(PROJECT, 'dist');
 const OWNER = 'owner@example.test';
 const READER = 'reader@example.test';
 const PHRASE = 'integration test phrase only';
@@ -33,6 +34,7 @@ function multipart(request) {
 
 async function installProvider(context, identity) {
   await context.route('**/*', async route => {
+    await (async()=>{
     const request = route.request();
     const url = new URL(request.url());
     const json = (body,status=200) => route.fulfill({status, headers:cors, contentType:'application/json', body:JSON.stringify(body)});
@@ -74,17 +76,19 @@ async function installProvider(context, identity) {
     }
     if(url.searchParams.get('alt')==='media') return route.fulfill({headers:cors,contentType:'application/octet-stream',body:file.data});
     return json({...file,data:undefined,capabilities:{canAddChildren:email===OWNER,canEdit:email===OWNER},owners:[{emailAddress:OWNER,me:email===OWNER}]});
+    })().catch(error=>{
+      if(/Route is already handled|Target page, context or browser has been closed/i.test(error.message))return;
+      throw error;
+    });
   });
 }
 
 async function signIn(page) {
-  await page.locator('.header-actions button[aria-label="Аккаунт"]').click();
-  await page.locator('.account-drawer').waitFor({state:'visible'});
-  await page.locator('.account-drawer .solid-button').click();
+  await page.locator('#profileBtn').click();
+  await page.locator('#loginBtn').click();
   await page.waitForFunction(()=>document.querySelector('#loginBtn').disabled);
-  await page.locator('.account-drawer .solid-button').click();
+  await page.locator('#driveBtn').click();
   await page.locator('#setupPanel').waitFor({state:'visible'});
-  await page.locator('.account-drawer').waitFor({state:'hidden'});
   assert.equal(await page.locator('#driveBtn').isVisible(),true,'Drive reconnect remains available');
 }
 
@@ -97,20 +101,19 @@ async function decryptCatalog(file) {
 }
 
 async function main() {
+  if(!process.env.MEDIA_VAULT_SKIP_BUILD)execFileSync('npm',['run','build'],{cwd:PROJECT,stdio:'inherit'});
   temp=await fs.mkdtemp(path.join(os.tmpdir(),'mediavault-browser-'));
+  const testRoot=path.join(temp,'site');
+  await fs.cp(ROOT,testRoot,{recursive:true});
   const mp4=path.join(temp,'sample.mp4');
-  execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=32x32:d=2:r=10','-c:v','libx264','-pix_fmt','yuv420p','-movflags','+faststart','-y',mp4]);
+  // Two-second 32×32 H.264 fixture keeps this test independent of video encoders.
+  await fs.writeFile(mp4,Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAQgbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAA0t0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAACAAAAAgAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAIAAABAAAAAALDbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAUABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAACbm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAi5zdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAACAAIABIAAAASAAAAAAAAAABFUxhdmM2MS4xOS4xMDEgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2UlsBEAAAAMAQAAABQPEiWWAAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAA9kAAAAAAAAABhzdHRzAAAAAAAAAAEAAAAUAAAEAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAqGN0dHMAAAAAAAAAEwAAAAEAAAgAAAAAAQAAFAAAAAABAAAIAAAAAAEAAAAAAAAAAQAABAAAAAABAAAUAAAAAAEAAAgAAAAAAQAAAAAAAAABAAAEAAAAAAEAABQAAAAAAQAACAAAAAABAAAAAAAAAAEAAAQAAAAAAQAAFAAAAAABAAAIAAAAAAEAAAAAAAAAAQAABAAAAAABAAAQAAAAAAIAAAQAAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAUAAAAAQAAAGRzdHN6AAAAAAAAAAAAAAAUAAAC0QAAAA0AAAAMAAAADAAAAAwAAAATAAAADgAAAAwAAAAMAAAAEwAAAA4AAAAMAAAADAAAABMAAAAOAAAADAAAAAwAAAASAAAADgAAAAwAAAAUc3RjbwAAAAAAAAABAAAEUAAAAGF1ZHRhAAAAWW1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALGlsc3QAAAAkqXRvbwAAABxkYXRhAAAAAQAAAABMYXZmNjEuNy4xMDMAAAAIZnJlZQAAA+FtZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTEwIHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAG2WIhAAR//7n4/wKbXzEcTp2GPr31tds+/BvgQAAAAlBmiRsQR/+tcAAAAAIQZ5CeId/RsEAAAAIAZ5hdEN/TEAAAAAIAZ5jakN/TEEAAAAPQZpoSahBaJlMCCP//rXBAAAACkGehkURLDv/RsEAAAAIAZ6ldEN/TEEAAAAIAZ6nakN/TEAAAAAPQZqsSahBbJlMCCH//quAAAAACkGeykUVLDv/RsEAAAAIAZ7pdEN/TEAAAAAIAZ7rakN/TEAAAAAPQZrwSahBbJlMCH///quBAAAACkGfDkUVLDv/RsEAAAAIAZ8tdEN/TEEAAAAIAZ8vakN/TEAAAAAOQZszSahBbJlMCG///qsAAAAKQZ9RRRUsN/9MQQAAAAgBn3JqQ39MQA==','base64'));
   server=http.createServer(async(req,res)=>{
     try {
-      const pathname=new URL(req.url,'http://localhost').pathname;
-      const relative=pathname.replace(/^\/media-vault\/?/,'')||'index.html';
-      if(!pathname.startsWith('/media-vault/')||relative.includes('..'))throw Error('Invalid path');
-      let file=path.resolve(ROOT,'media-vault','dist',relative);
-      let body;
-      try{body=await fs.readFile(file);}catch{
-        file=path.resolve(ROOT,'media-vault',relative);
-        body=await fs.readFile(file);
-      }
+      const pathname=new URL(req.url,'http://localhost').pathname.replace(/^\/media-vault\//,'/');
+      const file=path.join(testRoot,pathname.endsWith('/')?pathname+'index.html':pathname);
+      if(!file.startsWith(testRoot+path.sep)) throw Error('Invalid path');
+      const body=await fs.readFile(file);
       const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
       res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body);
     } catch {res.writeHead(404);res.end('Not found');}
@@ -119,9 +122,12 @@ async function main() {
   const base='http://127.0.0.1:'+server.address().port+'/media-vault/';
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
   const ownerContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'allow'});
+  ownerContext.setDefaultTimeout(20000);
   await installProvider(ownerContext,OWNER);
   const owner=await ownerContext.newPage();
   await owner.goto(base);
+  await owner.getByRole('heading',{name:'Твоё пространство',exact:true}).waitFor();
+  await owner.screenshot({path:path.join(temp,'mobile-home.png'),fullPage:true});
   await signIn(owner);
   await owner.locator('#passphrase').fill(PHRASE);
   await owner.locator('#passphraseAgain').fill(PHRASE);
@@ -134,8 +140,11 @@ async function main() {
     {name:'private-image.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a+kkAAAAASUVORK5CYII=','base64')},
     {name:'private-video.mp4',mimeType:'video/mp4',buffer:await fs.readFile(mp4)}
   ]);
-  await owner.waitForFunction(()=>document.querySelector('#count').textContent==='3 файлов',null,{timeout:30000});
-  assert.equal(await owner.locator('#uploadQueue').innerText().then(s=>(s.match(/✓/g)||[]).length),3,'All three files uploaded');
+  try{await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3,null,{timeout:30000});}
+  catch(error){
+    console.error('Upload state:',await owner.locator('#uploadQueue').innerText(),await owner.locator('#toast').allTextContents());
+    throw error;
+  }
   const catalog=await decryptCatalog(files.get(catalogId));
   assert.equal(catalog.items.length,3);
   assert.equal(files.get(catalog.folderId).mimeType,'application/vnd.google-apps.folder','First launch creates a folder in the signed-in owner Drive');
@@ -143,13 +152,49 @@ async function main() {
     assert.ok(!files.get(catalogId).data.includes(Buffer.from(item.name)),'Catalog encrypts filenames');
     for(const chunk of item.chunks) assert.ok(!files.get(chunk.fileId).data.includes(Buffer.from('Encrypted hello')),'Stored chunk is encrypted');
   }
+  const textItem=catalog.items.find(item=>item.name==='private-note.txt');
+  // The import form must prepare control data without fetching any video on this device.
+  const sourceRequests=[];
+  owner.on('request',request=>{if(new URL(request.url()).hostname==='source.example.com')sourceRequests.push(request.url());});
+  await owner.getByRole('navigation',{name:'Мобильная навигация'}).getByRole('button',{name:'Импорт',exact:true}).click();
+  await owner.locator('#streamUrl').fill('https://source.example.com/season');
+  await owner.locator('#serverCollection').fill('Мой сезон');
+  await owner.locator('#serverEpisodes').fill('1-12');
+  await owner.locator('#importVideoBtn').click();
+  const serverJob=JSON.parse(await owner.locator('#serverJob').inputValue());
+  assert.deepEqual(serverJob,{version:1,library_id:catalogId,sources:['https://source.example.com/season'],collection:'Мой сезон',episodes:'1-12',quality:'720',resume:true});
+  assert.ok(!JSON.stringify(serverJob).includes(PHRASE));
+  assert.ok(!JSON.stringify(serverJob).includes(OWNER));
+  assert.ok((await owner.locator('#openColab').getAttribute('href')).includes('notebooks/MediaVault_Server_Import.ipynb'));
+  assert.deepEqual(sourceRequests,[],'Preparing server import never fetches source HTML, playlists or video on the device');
+  await owner.getByRole('button',{name:'Закрыть',exact:true}).click();
+  await owner.locator('#refreshAfterImport').click();
+  await owner.getByText('Библиотека обновлена.',{exact:true}).waitFor();
+  await owner.locator('#libraryNav').click();
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
+  const delayedPattern='**/drive/v3/files/'+textItem.chunks[0].fileId+'?alt=media';
+  let releaseDownload,downloadStarted,downloadFailed;
+  const downloadGate=new Promise(resolve=>releaseDownload=resolve);
+  const downloading=new Promise((resolve,reject)=>{downloadStarted=resolve;downloadFailed=reject;});
+  await owner.route(delayedPattern,async route=>{
+    downloadStarted();await downloadGate;
+    try{await route.fallback();}catch{} // Closing the viewer may already have aborted this request.
+  });
+  await owner.locator('.media-card').filter({hasText:'private-note.txt'}).click();
+  const startTimer=setTimeout(()=>downloadFailed(Error('Viewer did not request the encrypted text chunk')),10000);
+  try{await downloading;}finally{clearTimeout(startTimer);}
+  await owner.locator('#closeViewer').click();
+  releaseDownload();
+  await owner.unroute(delayedPattern);
+  assert.equal(await owner.locator('#viewer').isVisible(),false,'Closing during a download leaves the viewer closed');
   await owner.locator('.media-card').filter({hasText:'private-note.txt'}).click();
   await owner.locator('#viewerContent pre').waitFor();
   assert.equal(await owner.locator('#viewerContent pre').innerText(),'Encrypted hello from mobile');
   await owner.locator('#closeViewer').click();
   await owner.locator('.media-card').filter({hasText:'private-image.png'}).click();
   await owner.waitForFunction(()=>document.querySelector('#viewerContent img')?.naturalWidth===1);
-  await owner.locator('#closeViewer').click();
+  await owner.keyboard.press('Escape');
+  assert.equal(await owner.locator('#viewer').isVisible(),false,'Escape closes the React viewer');
   await owner.locator('.media-card').filter({hasText:'private-video.mp4'}).click();
   await owner.waitForFunction(()=>document.querySelector('#viewerContent video')?.readyState>=2);
   assert.equal(await owner.locator('video').evaluate(video=>Math.round(video.duration)),2,'Service Worker streams playable MP4');
@@ -159,44 +204,68 @@ async function main() {
   await owner.locator('video').evaluate(video=>video.currentTime=1);
   await owner.waitForFunction(()=>document.querySelector('video').currentTime>=1);
   await owner.locator('#closeViewer').click();
+  await owner.locator('#searchInput').fill('private-note');
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===1);
+  assert.ok((await owner.locator('.media-card').innerText()).includes('private-note.txt'),'Search filters real catalog entries');
+  await owner.locator('#searchInput').fill('no-such-file');
+  await owner.getByRole('heading',{name:'Ничего не нашлось'}).waitFor();
+  await owner.locator('#searchInput').fill('');
+  await owner.getByRole('button',{name:'Видео',exact:true}).click();
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===1);
+  assert.ok((await owner.locator('.media-card').innerText()).includes('private-video.mp4'),'Category filter selects video');
+  await owner.getByRole('button',{name:'Всё',exact:true}).click();
+  await owner.locator('.media-card').filter({hasText:'private-note.txt'}).getByRole('button',{name:'В избранное'}).click();
+  await owner.getByRole('button',{name:'Избранное',exact:true}).click();
+  assert.equal(await owner.locator('.media-card').count(),1,'Favorites show only bookmarked material');
+  assert.ok((await owner.locator('.media-card').innerText()).includes('private-note.txt'));
+  await owner.getByRole('button',{name:'Всё',exact:true}).click();
+  await owner.getByRole('combobox',{name:'Порядок материалов'}).selectOption('name');
+  assert.deepEqual(await owner.locator('.media-name').allTextContents(),['private-image.png','private-note.txt','private-video.mp4'],'Name sort orders the library');
+  await owner.getByRole('navigation',{name:'Мобильная навигация'}).getByRole('button',{name:'История',exact:true}).click();
+  assert.equal(await owner.locator('.history-item').count(),3,'History records the three opened files');
+  await owner.locator('.history-item').filter({hasText:'private-note.txt'}).click();
+  await owner.locator('#viewerContent pre').waitFor();
+  await owner.locator('#closeViewer').click();
+  await owner.locator('#libraryNav').click();
   assert.ok(await owner.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile viewport has no horizontal overflow');
+  await owner.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
   await owner.screenshot({path:path.join(temp,'mobile-owner.png'),fullPage:true});
   await owner.reload();
   await signIn(owner);
   await owner.locator('#passphrase').fill('deliberately wrong phrase');
   await owner.locator('#unlockBtn').click();
-  await owner.waitForFunction(()=>document.querySelector('#status').textContent==='Ошибка открытия');
+  await owner.getByText('Неверная секретная фраза или повреждённый каталог.',{exact:true}).waitFor();
   assert.equal(await owner.locator('#adminPanel').isVisible(),false,'Wrong phrase does not open library');
   await owner.locator('#passphrase').fill(PHRASE);
   await owner.locator('#unlockBtn').click();
   await owner.locator('#adminPanel').waitFor({state:'visible'});
   await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
+  await owner.getByRole('button',{name:'Избранное',exact:true}).click();
+  assert.equal(await owner.locator('.media-card').count(),1,'Favorites persist after refresh and unlocking');
+  await owner.getByRole('button',{name:'Всё',exact:true}).click();
+  await owner.locator('#profileBtn').click();
   await owner.evaluate(()=>window.__tokenDuration=16);
-  await owner.locator('.header-actions button[aria-label="Аккаунт"]').click();
-  await owner.locator('.account-drawer .solid-button').click();
-  await owner.locator('.account-drawer').waitFor({state:'hidden'});
-  await owner.waitForFunction(()=>document.querySelector('#status').textContent==='Обнови доступ к Drive');
+  await owner.locator('#driveBtn').click();
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
+  await owner.locator('#profileBtn').click();
+  await owner.waitForFunction(()=>document.querySelector('#driveBtn')?.textContent.includes('заново'));
   await owner.evaluate(()=>window.__tokenDuration=3600);
-  await owner.locator('.header-actions button[aria-label="Аккаунт"]').click();
-  await owner.locator('.account-drawer .solid-button').click();
-  await owner.locator('.account-drawer').waitFor({state:'hidden'});
-  await owner.waitForFunction(()=>document.querySelector('#status').textContent.includes('библиотека открыта'));
+  await owner.locator('#driveBtn').click();
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
   assert.equal(await owner.locator('#setupPanel').isVisible(),false,'Reconnect preserves unlocked library without another phrase');
   assert.equal(await owner.locator('.media-card').count(),3);
   const cdp=await ownerContext.newCDPSession(owner);
   await cdp.send('ServiceWorker.enable');
   await cdp.send('ServiceWorker.stopAllWorkers');
-  const streamed=await owner.evaluate(async id=>Promise.race([
-    (async()=>{
-      const response=await fetch('./__media__/'+id,{headers:{Range:'bytes=-16'}});
-      return {status:response.status,data:Array.from(new Uint8Array(await response.arrayBuffer()))};
-    })(),
-    new Promise((_,reject)=>setTimeout(()=>reject(Error('Timed out restoring Service Worker stream')),15000))
-  ]),catalog.items.find(item=>item.name==='private-video.mp4').id);
+  const streamed=await owner.evaluate(async id=>{
+    const response=await fetch('./__media__/'+id,{headers:{Range:'bytes=-16'}});
+    return {status:response.status,data:Array.from(new Uint8Array(await response.arrayBuffer()))};
+  },catalog.items.find(item=>item.name==='private-video.mp4').id);
   assert.equal(streamed.status,206,'Worker restores session after being stopped');
   assert.deepEqual(Buffer.from(streamed.data),(await fs.readFile(mp4)).subarray(-16),'Restarted worker returns exact decrypted suffix');
   const writesBefore=writes.length;
   const readerContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'allow'});
+  readerContext.setDefaultTimeout(20000);
   await installProvider(readerContext,READER);
   const reader=await readerContext.newPage();
   await reader.goto(base+'?library='+catalogId);
@@ -216,7 +285,17 @@ async function main() {
   assert.equal(writes.length,writesBefore,'Reader operations produce no Drive writes');
   const forbidden=await reader.evaluate(async token=>(await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,READER);
   assert.equal(forbidden,403,'Fake Drive provider enforces reader ACL');
-  console.log('PASS: mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; mobile text/image/streaming MP4/fallback and seek; wrong/correct phrase after refresh; expiring token/reconnect; stopped worker recovery; reader scopes and UI; no reader writes.');
+  const directory=path.join(temp,'Private folder');
+  await fs.mkdir(directory);
+  await fs.writeFile(path.join(directory,'directory-note.txt'),'Encrypted directory picker test');
+  await owner.locator('#foldersInput').setInputFiles(directory);
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===4);
+  const folderCatalog=await decryptCatalog(files.get(catalogId));
+  const folderItem=folderCatalog.items.find(item=>item.name==='directory-note.txt');
+  assert.equal(folderItem.sourcePath,'Private folder/directory-note.txt');
+  assert.equal(folderCatalog.storage.collections.find(entry=>entry.id===folderItem.collectionId).name,'Private folder');
+  assert.ok(!files.get(catalogId).data.includes(Buffer.from('Private folder')),'Directory names also stay encrypted');
+  console.log('PASS: React production build; mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; server job without video transfer or credential export; catalog refresh; mobile viewer/abort/Escape; MP4 stream/fallback/seek; search/category/name sort/favorites/history; phrase unlock; token reconnect; stopped worker recovery; reader scopes and UI without writes.');
   console.log('Screenshot: '+path.join(temp,'mobile-owner.png'));
   console.log('Live Google OAuth, real Drive ACL and physical Android/iOS playback remain outside this test.');
 }

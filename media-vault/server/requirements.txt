@@ -1,0 +1,6 @@
+anime-dl-core==0.5.1
+cryptography==50.0.2
+google-api-python-client==2.201.0
+google-auth==2.62.0
+m3u8==6.0.0
+requests==2.34.2

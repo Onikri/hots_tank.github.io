@@ -14,9 +14,9 @@ export async function driveRequest(token, path, options={}) {
   if (res.status===204) return {};
   return res.json();
 }
-export async function driveDownload(token, id) {
+export async function driveDownload(token, id, options={}) {
   const res=await fetch(API+"/files/"+encodeURIComponent(id)+"?alt=media",
-    {headers:{Authorization:"Bearer "+token}});
+    {signal:options.signal,headers:{Authorization:"Bearer "+token}});
   if(!res.ok) throw httpError("Ошибка скачивания из Drive: HTTP "+res.status,res.status);
   return res.arrayBuffer();
 }
@@ -24,22 +24,22 @@ export async function readEnvelope(token,id) {
   const data=await driveDownload(token,id);
   return JSON.parse(new TextDecoder().decode(data));
 }
-export async function createFolder(token,name,parentId) {
+export async function createFolder(token,name,parentId,options={}) {
   return driveRequest(token,"/files?fields=id,name,webViewLink",{
-    method:"POST",headers:{"Content-Type":"application/json"},
+    method:"POST",signal:options.signal,headers:{"Content-Type":"application/json"},
     body:JSON.stringify({name,mimeType:"application/vnd.google-apps.folder",
       parents:parentId?[parentId]:undefined})
   });
 }
-export async function folderExists(token,id) {
+export async function folderExists(token,id,options={}) {
   if(!id) return false;
   try {
-    const folder=await driveRequest(token,"/files/"+encodeURIComponent(id)+"?fields=id,mimeType,capabilities(canAddChildren)");
+    const folder=await driveRequest(token,"/files/"+encodeURIComponent(id)+"?fields=id,mimeType,capabilities(canAddChildren)",{signal:options.signal});
     return folder.mimeType==="application/vnd.google-apps.folder"&&folder.capabilities?.canAddChildren===true;
   }
   catch(error) { if(error.status===404)return false;throw error; }
 }
-export async function uploadSmall(token,name,blob,parentId) {
+export async function uploadSmall(token,name,blob,parentId,options={}) {
   // The ciphertext chunk is 4 MiB + 16 bytes: safely below multipart 5 MB guidance.
   const boundary="media_vault_"+crypto.randomUUID().replaceAll("-","");
   const metadata={name,mimeType:"application/octet-stream",parents:[parentId]};
@@ -47,14 +47,14 @@ export async function uploadSmall(token,name,blob,parentId) {
     JSON.stringify(metadata),"\r\n--"+boundary+"\r\nContent-Type: application/octet-stream\r\n\r\n",
     blob,"\r\n--"+boundary+"--"]);
   const res=await fetch(UPLOAD+"/files?uploadType=multipart&fields=id,name",{
-    method:"POST",headers:{Authorization:"Bearer "+token,
+    method:"POST",signal:options.signal,headers:{Authorization:"Bearer "+token,
       "Content-Type":"multipart/related; boundary="+boundary},body});
   if(!res.ok) throw httpError("Ошибка загрузки в Drive: HTTP "+res.status+" "+(await res.text()).slice(0,200),res.status);
   return res.json();
 }
-export async function replaceSmall(token,id,blob) {
+export async function replaceSmall(token,id,blob,options={}) {
   const res=await fetch(UPLOAD+"/files/"+encodeURIComponent(id)+"?uploadType=media",{
-    method:"PATCH",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:blob});
+    method:"PATCH",signal:options.signal,headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:blob});
   if(!res.ok) throw httpError("Не удалось сохранить каталог: HTTP "+res.status,res.status);
 }
 export async function inviteReader(token,folderId,email) {
@@ -69,4 +69,3 @@ export async function trashFolder(token,folderId) {
     body:JSON.stringify({trashed:true})
   });
 }
-

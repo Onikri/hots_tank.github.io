@@ -6,4 +6,3 @@ window.MEDIA_VAULT_CONFIG = Object.freeze({
   storageFolderId: "",
   applicationName: "MediaVault"
 });
-

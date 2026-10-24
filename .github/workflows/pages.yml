@@ -30,20 +30,35 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build React MediaVault
+      - name: Set up Python for the server importer
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: media-vault/server/requirements.txt
+
+      - name: Install pinned dependencies
         run: |
-          npm install --prefix media-vault --no-audit --no-fund --no-package-lock
+          npm ci --prefix media-vault --no-audit --no-fund
+          python -m pip install -r media-vault/server/requirements.txt
+
+      - name: Build and validate encrypted media
+        run: |
           npm run build --prefix media-vault
-          node --test media-vault/tests/range.test.cjs media-vault/tests/metadata.test.mjs media-vault/tests/yummy-html.test.mjs media-vault/tests/streaming.test.mjs
+          npm test --prefix media-vault
+          npm run test:server --prefix media-vault
+          npm run test:notebook --prefix media-vault
 
-      - name: Visual and interaction tests
+      - name: Responsive UI and browser integration
+        timeout-minutes: 5
+        env:
+          MEDIA_VAULT_SKIP_BUILD: '1'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          npx --prefix media-vault playwright install --with-deps chromium
-          CHROMIUM_PATH="$(cd media-vault && node -p 'require("playwright").chromium.executablePath()')" npm run test:ui --prefix media-vault
-          CHROMIUM_PATH="$(cd media-vault && node -p 'require("playwright").chromium.executablePath()')" node media-vault/tests/pages.test.cjs
-
+          CHROMIUM_PATH="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROMIUM_PATH"
+          export CHROMIUM_PATH
+          npm run test:ui --prefix media-vault
+          npm run test:browser --prefix media-vault
 
       - name: Upload React UI previews
         if: always()
@@ -69,8 +84,7 @@ jobs:
       - name: Include MediaVault in the published site
         run: |
           mkdir -p site/media-vault
-          cp -a media-vault/dist/. site/media-vault/
-          cp media-vault/{config.js,sw.js,icon.svg,manifest.webmanifest,selftest.html,crypto.js} site/media-vault/
+          rsync -a --delete media-vault/dist/ site/media-vault/
           test -f site/media-vault/index.html
           test -f site/media-vault/sw.js
           test -d site/media-vault/assets
@@ -133,10 +147,3 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Extended encrypted-media regression (diagnostic)
-        continue-on-error: true
-        timeout-minutes: 3
-        run: |
-          CHROMIUM_PATH="$(cd media-vault && node -p 'require("playwright").chromium.executablePath()')" timeout 120s npm run test:browser --prefix media-vault
-
