@@ -65,7 +65,8 @@ export function parseSource(input){
   if(url.protocol!=="https:" || !EXTERNAL_HOSTS.has(host))throw Error("Поддерживаются HTTPS-ссылки AnimeLIB или YummyAnime. Можно ввести название вместо ссылки.");
   const segments=url.pathname.split("/").filter(Boolean);
   const anchor=segments.findIndex(x=>["anime","title","watch","catalog"].includes(x));
-  const slug=anchor>=0&&segments[anchor+1]?segments[anchor+1]:segments.filter(x=>x!=="ru").at(-1)||"";
+  const slugIndex=segments[anchor]==="catalog"&&segments[anchor+1]==="item"?anchor+2:anchor+1;
+  const slug=anchor>=0&&segments[slugIndex]?segments[slugIndex]:segments.filter(x=>x!=="ru").at(-1)||"";
   let raw;
   try{raw=decodeURIComponent(slug);}catch{raw=slug;}
   const query=raw.replace(/-\d{3,}$/,"").replace(/[-_]+/g," ").trim();
