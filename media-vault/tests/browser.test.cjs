@@ -46,6 +46,10 @@ async function installProvider(context, identity) {
     const email = request.headers().authorization?.endsWith(READER) ? READER : OWNER;
     if(url.pathname === '/oauth2/v3/userinfo') return json({sub:email,email,email_verified:true,given_name:email===OWNER?'Owner':'Reader'});
     if(request.method() !== 'GET' && email === READER) return json({error:{message:'Reader cannot write'}},403);
+    if(url.pathname === '/drive/v3/files' && request.method()==='GET'){
+      assert.ok(url.searchParams.get('q').includes("name = 'vault-catalog.enc.json'"));
+      return json({files:[...files.values()].filter(file=>file.name==='vault-catalog.enc.json').map(file=>({id:file.id,name:file.name,ownedByMe:email===OWNER,modifiedTime:'2026-10-24T00:00:00Z',owners:[{emailAddress:OWNER}]}))});
+    }
     if(url.pathname.startsWith('/upload/drive/v3/files')) {
       writes.push({email,method:request.method(),url:url.pathname});
       if(request.method()==='POST') {
@@ -87,9 +91,10 @@ async function signIn(page) {
   await page.locator('#profileBtn').click();
   await page.locator('#loginBtn').click();
   await page.waitForFunction(()=>document.querySelector('#loginBtn').disabled);
-  await page.locator('#driveBtn').click();
   await page.locator('#setupPanel').waitFor({state:'visible'});
-  assert.equal(await page.locator('#driveBtn').isVisible(),true,'Drive reconnect remains available');
+  await page.waitForFunction(()=>document.querySelector('#setupPanel')?.getAttribute('aria-busy')==='false');
+  assert.equal(await page.locator('#driveBtn').isVisible(),false,'Drive connects with login; no extra connection click is required');
+  assert.equal(await page.locator('#libraryId').count(),0,'Normal setup never asks the user for a Drive ID');
 }
 
 async function decryptCatalog(file) {
@@ -129,12 +134,16 @@ async function main() {
   await owner.getByRole('heading',{name:'Твоё пространство',exact:true}).waitFor();
   await owner.screenshot({path:path.join(temp,'mobile-home.png'),fullPage:true});
   await signIn(owner);
+  assert.equal(await owner.locator('#createBtn').isVisible(),true);
+  assert.equal(await owner.locator('#unlockBtn').isVisible(),false,'First launch only asks to choose a phrase');
+  assert.equal((await owner.evaluate(()=>window.__grants)).length,1,'One OAuth request connects identity and read access');
   await owner.locator('#passphrase').fill(PHRASE);
   await owner.locator('#passphraseAgain').fill(PHRASE);
   await owner.locator('#createBtn').click();
   await owner.locator('#adminPanel').waitFor({state:'visible'});
   const catalogId=await owner.evaluate(()=>localStorage.getItem('mediavault_library'));
   assert.ok(catalogId,'Catalog ID saved');
+  assert.ok((await owner.evaluate(()=>window.__grants)).some(scope=>/\/auth\/drive(?:\s|$)/.test(scope)),'Creating the encrypted library obtains the owner write permission');
   await owner.locator('#filesInput').setInputFiles([
     {name:'private-note.txt',mimeType:'text/plain',buffer:Buffer.from('Encrypted hello from mobile')},
     {name:'private-image.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a+kkAAAAASUVORK5CYII=','base64')},
@@ -295,6 +304,44 @@ async function main() {
   assert.equal(folderItem.sourcePath,'Private folder/directory-note.txt');
   assert.equal(folderCatalog.storage.collections.find(entry=>entry.id===folderItem.collectionId).name,'Private folder');
   assert.ok(!files.get(catalogId).data.includes(Buffer.from('Private folder')),'Directory names also stay encrypted');
+  // A new phone/browser has no saved ID and must find the existing vault itself.
+  const freshContext=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'allow'});
+  await installProvider(freshContext,OWNER);
+  const fresh=await freshContext.newPage();
+  await fresh.goto(base);
+  assert.equal(await fresh.evaluate(()=>localStorage.getItem('mediavault_library')),null);
+  const writesBeforeDiscovery=writes.length;
+  await signIn(fresh);
+  assert.equal(await fresh.evaluate(()=>localStorage.getItem('mediavault_library')),catalogId,'A new device discovers and remembers the existing catalog');
+  assert.equal(await fresh.locator('#createBtn').isVisible(),false,'Discovery prevents accidental duplicate creation');
+  assert.equal(writes.length,writesBeforeDiscovery,'Login and discovery perform no Drive writes');
+  await fresh.locator('#passphrase').fill(PHRASE);
+  await fresh.locator('#unlockBtn').click();
+  await fresh.waitForFunction(()=>document.querySelectorAll('.media-card').length===4);
+  assert.equal(writes.length,writesBeforeDiscovery,'Opening a library does not need write access');
+  assert.equal((await fresh.evaluate(()=>window.__grants)).length,1,'An existing library opens after a single Google sign-in');
+  await fresh.locator('#filesInput').setInputFiles([{name:'new-device.txt',mimeType:'text/plain',buffer:Buffer.from('New device upload')}]);
+  await fresh.waitForFunction(()=>document.querySelectorAll('.media-card').length===5);
+  assert.ok((await fresh.evaluate(()=>window.__grants)).some(scope=>/\/auth\/drive(?:\s|$)/.test(scope)),'First modification requests owner write permission automatically');
+  await freshContext.close();
+  // A failed Drive scan must not be mistaken for an empty account.
+  const blockedContext=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'});
+  await installProvider(blockedContext,OWNER);
+  let blockDiscovery=true;
+  await blockedContext.route('https://www.googleapis.com/drive/v3/files?**',route=>{
+    if(blockDiscovery&&route.request().method()==='GET')return route.fulfill({status:403,headers:cors,contentType:'application/json',body:JSON.stringify({error:{message:'Drive API disabled fixture'}})});
+    return route.fallback();
+  });
+  const blocked=await blockedContext.newPage();await blocked.goto(base);
+  const writesBeforeError=writes.length;
+  await signIn(blocked);
+  await blocked.locator('#findLibrariesBtn').waitFor();
+  assert.equal(await blocked.locator('#createBtn').isVisible(),false,'A scan failure never offers to create another empty vault');
+  assert.equal(writes.length,writesBeforeError);
+  blockDiscovery=false;await blocked.locator('#findLibrariesBtn').click();
+  await blocked.locator('#unlockBtn').waitFor();
+  assert.equal(await blocked.evaluate(()=>localStorage.getItem('mediavault_library')),catalogId);
+  await blockedContext.close();
   console.log('PASS: React production build; mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; server job without video transfer or credential export; catalog refresh; mobile viewer/abort/Escape; MP4 stream/fallback/seek; search/category/name sort/favorites/history; phrase unlock; token reconnect; stopped worker recovery; reader scopes and UI without writes.');
   console.log('Screenshot: '+path.join(temp,'mobile-owner.png'));
   console.log('Live Google OAuth, real Drive ACL and physical Android/iOS playback remain outside this test.');

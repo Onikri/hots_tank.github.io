@@ -24,6 +24,21 @@ export async function readEnvelope(token,id) {
   const data=await driveDownload(token,id);
   return JSON.parse(new TextDecoder().decode(data));
 }
+export async function findLibraries(token,{ownedOnly=false,signal}={}) {
+  const query="trashed = false and name = 'vault-catalog.enc.json'"+(ownedOnly?" and 'me' in owners":"");
+  const files=[];
+  let pageToken;
+  do{
+    const params=new URLSearchParams({q:query,spaces:"drive",pageSize:"100",
+      fields:"nextPageToken,files(id,name,modifiedTime,ownedByMe,owners(emailAddress))",
+      orderBy:"modifiedTime desc"});
+    if(pageToken)params.set("pageToken",pageToken);
+    const page=await driveRequest(token,"/files?"+params,{signal});
+    files.push(...(page.files||[]));
+    pageToken=page.nextPageToken;
+  }while(pageToken);
+  return files;
+}
 export async function createFolder(token,name,parentId,options={}) {
   return driveRequest(token,"/files?fields=id,name,webViewLink",{
     method:"POST",signal:options.signal,headers:{"Content-Type":"application/json"},

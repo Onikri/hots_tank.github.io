@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test tests/range.test.cjs tests/upload.test.cjs tests/upload.test.mjs tests/server-job.test.mjs",
+    "test": "node --test tests/range.test.cjs tests/upload.test.cjs tests/upload.test.mjs tests/server-job.test.mjs tests/drive-discovery.test.mjs",
     "test:browser": "node tests/browser.test.cjs",
     "test:ui": "node tests/ui.test.cjs",
     "preview": "vite preview --host 0.0.0.0",

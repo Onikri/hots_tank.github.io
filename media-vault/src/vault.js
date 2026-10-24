@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from "react";
 import {newSalt,deriveVaultKey,openChunk,sealIndex,openIndex,base64ToBytes} from "../crypto.js";
-import {driveDownload,readEnvelope,createFolder,folderExists,uploadSmall,
+import {driveDownload,readEnvelope,findLibraries,createFolder,folderExists,uploadSmall,
   inviteReader} from "../drive.js";
 import {createUploadService} from "./upload.js";
 
@@ -26,7 +26,8 @@ function setupNotice(){
 function initialState(){
   return {user:null,admin:false,token:null,tokenExpiresAt:0,key:null,catalog:null,
     libraryId:storedLibrary(),status:"Не подключено",notice:setupNotice(),toast:null,
-    busy:"",uploadProgress:[],driveConnected:false,workerReady:false,authConfigured:isConfigured()};
+    busy:"",uploadProgress:[],driveConnected:false,driveWritable:false,
+    libraryOptions:[],libraryDiscovery:"idle",libraryDiscoveryError:"",workerReady:false,authConfigured:isConfigured()};
 }
 function cancelled(){return new DOMException("Операция отменена","AbortError");}
 async function hashEmail(email){
@@ -70,7 +71,7 @@ function createController(get,patch){
     if(!get().user||(expectedToken&&get().token!==expectedToken))return;
     clearTimeout(tokenTimer);
     const wasConnected=!!get().token;
-    patch({token:null,tokenExpiresAt:0,driveConnected:false,workerReady:false,status:"Обнови доступ к Drive",
+    patch({token:null,tokenExpiresAt:0,driveConnected:false,driveWritable:false,workerReady:false,status:"Обнови доступ к Drive",
       notice:{title:"Обнови доступ к Drive",text:"Срок доступа истёк. Нажми «Подключить Drive заново», чтобы продолжить."}});
     clearWorkerSession();
     if(wasConnected)toast("Срок доступа к Drive истёк. Подключи Drive заново.",true);
@@ -159,6 +160,7 @@ function createController(get,patch){
     return new Promise((resolve,reject)=>{
       const client=oauth.initTokenClient({
         client_id:configuration().googleClientId,scope,
+        include_granted_scopes:true,
         prompt:current.user?"":"select_account",
         ...(current.user?{login_hint:current.user.email}:{}),
         callback:result=>result.error?reject(Error(result.error_description||result.error)):
@@ -185,40 +187,93 @@ function createController(get,patch){
     try{localStorage.setItem("mediavault_library",id);}catch{}
     patch({libraryId:id});
   }
+  function tokenRights(result){
+    const scopes=new Set(String(result.scope||"").split(/\s+/));
+    const writable=scopes.has("https://www.googleapis.com/auth/drive");
+    return {writable,readable:writable||scopes.has("https://www.googleapis.com/auth/drive.readonly")};
+  }
+  function acceptDriveToken(result){
+    const rights=tokenRights(result);
+    if(!rights.readable)throw Error("В окне Google разреши доступ к файлам Drive, чтобы открыть медиатеку.");
+    patch({token:result.access_token,tokenExpiresAt:Date.now()+Number(result.expires_in||3600)*1000,
+      driveConnected:true,driveWritable:rights.writable,status:"Google Drive подключён"});
+    scheduleExpiry();
+  }
+  async function discoverLibrary(expected){
+    patch({libraryDiscovery:"searching",libraryDiscoveryError:"",notice:null});
+    try{
+      const invited=new URLSearchParams(window.location.search).get("library");
+      if(invited){
+        if(!/^[\w-]{5,256}$/.test(invited))throw Error("В ссылке-приглашении некорректный ID библиотеки.");
+        assertEpoch(expected);
+        saveLibraryId(invited);
+        patch({libraryOptions:[{id:invited,label:"Библиотека из приглашения"}],libraryDiscovery:"found"});
+        return;
+      }
+      let files=await findLibraries(driveToken(),{ownedOnly:get().admin});
+      if(!get().admin){
+        const verified=[];
+        for(const file of files){
+          for(const owner of file.owners||[]){
+            if(owner.emailAddress&&(await hashEmail(owner.emailAddress))===configuration().adminEmailSha256){verified.push(file);break;}
+          }
+        }
+        files=verified;
+      }
+      assertEpoch(expected);
+      const options=files.map((file,index)=>({id:file.id,
+        label:files.length===1?"Твоя библиотека":`Библиотека ${index+1}${file.modifiedTime?' · '+new Date(file.modifiedTime).toLocaleDateString('ru-RU'):''}`}));
+      const known=options.find(option=>option.id===get().libraryId);
+      saveLibraryId(known?.id||(options.length===1?options[0].id:""));
+      patch({libraryOptions:options,libraryDiscovery:options.length?"found":"empty"});
+    }catch(cause){
+      if(expected===epoch&&cause?.name!=="AbortError")patch({libraryDiscovery:"error",libraryDiscoveryError:cause.message||"Не удалось найти библиотеку в Drive."});
+      throw cause;
+    }
+  }
+  async function authorizeDrive(scope,expected){
+    const originalUser=get().user;
+    if(!originalUser)throw Error("Сначала войди в Google.");
+    const result=await askToken(scope);
+    const actual=await userFromToken(result.access_token);
+    if(actual.sub!==originalUser.sub)throw Error("Выбери тот же Google-аккаунт, что и при входе.");
+    assertEpoch(expected);
+    acceptDriveToken(result);
+    await syncWorker();
+    assertEpoch(expected);
+  }
+  async function ensureWriteAccess(expected){
+    if(!get().admin)throw Error("Изменять библиотеку может только владелец.");
+    driveToken();
+    if(!get().driveWritable)await authorizeDrive("openid email profile https://www.googleapis.com/auth/drive",expected);
+    if(!get().driveWritable)throw Error("В окне Google разреши запись файлов в Drive.");
+  }
   function enterLibrary(){
     patch({notice:null,status:(get().admin?"Администратор":"Зритель")+" · библиотека открыта"});
   }
   async function login(){
     return run("login",async expected=>{
       if(!isConfigured())throw Error("Сначала добавь Google OAuth Client ID в config.js. Инструкция — в README.");
-      const {access_token:token}=await askToken("openid email profile");
-      const user=await userFromToken(token);
+      const result=await askToken("openid email profile https://www.googleapis.com/auth/drive.readonly");
+      const user=await userFromToken(result.access_token);
       const admin=(await hashEmail(user.email))===configuration().adminEmailSha256;
       assertEpoch(expected);
       patch({user,admin,status:admin?"Администратор · Google":"Пользователь · Google",
-        notice:{title:"Подключи Google Drive",text:"Личность подтверждена. Теперь предоставь доступ к Drive для своей роли."}});
-      toast("Вход выполнен. Теперь подключи Google Drive.");
+        notice:{title:"Разреши доступ к файлам",text:"Доступ к Google Drive запрашивается вместе со входом. Подтверди его в окне Google."}});
+      acceptDriveToken(result);
+      await discoverLibrary(expected);
+      toast(get().libraryDiscovery==="found"?"Библиотека найдена. Введи свою секретную фразу.":admin?"Осталось придумать секретную фразу — остальное создадим автоматически.":"Вход выполнен. Для доступа нужно приглашение владельца.");
       return true;
     });
   }
   async function connectDrive(){
     return run("connect",async expected=>{
-      const originalUser=get().user;
-      if(!originalUser)throw Error("Сначала войди в Google.");
       const scope="openid email profile https://www.googleapis.com/auth/"+(get().admin?"drive":"drive.readonly");
-      const result=await askToken(scope);
-      const actual=await userFromToken(result.access_token);
-      if(actual.sub!==originalUser.sub)throw Error("Для Drive выбери тот же Google-аккаунт, что и при входе.");
-      assertEpoch(expected);
-      patch({token:result.access_token,tokenExpiresAt:Date.now()+Number(result.expires_in||3600)*1000,
-        driveConnected:true,status:"Drive подключён",
-        notice:get().catalog?null:{title:"Google Drive подключён",
-          text:"Введи ID библиотеки из приглашения и секретную фразу. Администратор может создать новую библиотеку."}});
-      scheduleExpiry();
-      await syncWorker();
-      assertEpoch(expected);
+      await authorizeDrive(scope,expected);
+      patch({notice:null});
+      if(!get().catalog)await discoverLibrary(expected);
       if(get().catalog)enterLibrary();
-      toast("Drive подключён. Токен хранится только в памяти браузера.");
+      toast(get().catalog?"Доступ к Drive обновлён.":"Библиотека проверена — осталось ввести секретную фразу.");
       return true;
     });
   }
@@ -247,8 +302,13 @@ function createController(get,patch){
   async function createLibrary(passphrase,again){
     return run("create",async expected=>{
       if(!get().admin)throw Error("Создавать библиотеку может только администратор.");
-      const token=driveToken();
       if(passphrase!==again)throw Error("Секретные фразы не совпадают.");
+      if(passphrase.length<12)throw Error("Придумай секретную фразу длиной от 12 символов.");
+      await ensureWriteAccess(expected);
+      // Recheck before creating: another device may have initialized the vault.
+      await discoverLibrary(expected);
+      if(get().libraryOptions.length)throw Error("Библиотека уже найдена. Открой её своей секретной фразой.");
+      const token=driveToken();
       const nextSalt=newSalt(),key=await deriveVaultKey(passphrase,nextSalt);
       assertEpoch(expected);
       patch({status:"Создаём библиотеку…"});
@@ -285,6 +345,7 @@ function createController(get,patch){
   });
   async function uploadFiles(files,options={}){
     return run("upload",async expected=>{
+      await ensureWriteAccess(expected);
       patch({uploadProgress:[]});
       const results=await uploads.uploadFiles(files,options);
       assertEpoch(expected);
@@ -297,6 +358,7 @@ function createController(get,patch){
   }
   async function importStream(options){
     return run("upload",async expected=>{
+      await ensureWriteAccess(expected);
       patch({uploadProgress:[]});
       const item=await uploads.importStream(options);
       assertEpoch(expected);
@@ -307,6 +369,7 @@ function createController(get,patch){
   }
   async function importVideo(options,fetcher){
     return run("upload",async expected=>{
+      await ensureWriteAccess(expected);
       patch({uploadProgress:[]});
       const item=await uploads.importVideo(options,fetcher);
       assertEpoch(expected);
@@ -320,6 +383,7 @@ function createController(get,patch){
       if(!get().admin||!get().catalog)throw Error("Только администратор может приглашать.");
       const address=(email||"").trim();
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))throw Error("Проверь адрес email.");
+      await ensureWriteAccess(expected);
       await inviteReader(driveToken(),get().catalog.folderId,address);
       assertEpoch(expected);
       toast("Приглашение отправлено. Передай ссылку и секретную фразу отдельно.");
@@ -376,6 +440,9 @@ function createController(get,patch){
       return true;
     });
   }
+  async function findMyLibrary(){
+    return run("find",async expected=>{await discoverLibrary(expected);return true;});
+  }
   async function prepareStream(item){
     const expected=epoch;
     driveToken();
@@ -393,7 +460,8 @@ function createController(get,patch){
     epoch++;salt=null;
     clearTimeout(tokenTimer);clearTimeout(toastTimer);
     clearWorkerSession();
-    patch({user:null,admin:false,token:null,tokenExpiresAt:0,key:null,catalog:null,driveConnected:false,
+    patch({user:null,admin:false,token:null,tokenExpiresAt:0,key:null,catalog:null,driveConnected:false,driveWritable:false,
+      libraryOptions:[],libraryDiscovery:"idle",libraryDiscoveryError:"",
       workerReady:false,status:"Не подключено",notice:setupNotice(),toast:null,busy:"",uploadProgress:[]});
   }
   function onMessage(event){
@@ -428,7 +496,7 @@ function createController(get,patch){
     clearWorkerSession();
   }
   return {mount,unmount,actions:{login,connectDrive,logout,unlock,createLibrary,uploadFiles,importStream,importVideo,
-    getState:uploads.getState,refreshCatalog,invite,copyInvite,inviteUrl,readWhole,prepareStream,error,clearToast}};
+    getState:uploads.getState,findMyLibrary,refreshCatalog,invite,copyInvite,inviteUrl,readWhole,prepareStream,error,clearToast}};
 }
 
 export function useVault(){
