@@ -18,6 +18,7 @@ const sections=[{id:'anime',art:'video',name:'Аниме',formats:'ТАЙТЛЫ 
   {id:'music',art:'audio',name:'Музыка',formats:'АЛЬБОМЫ · ТРЕКИ',icon:'audio'}];
 const navigation=[{id:'home',label:'Главная',icon:'home'},{id:'library',label:'Библиотека',icon:'library'},{id:'import',label:'Импорт',icon:'cloud'},
   {id:'history',label:'История',icon:'history'},{id:'profile',label:'Профиль',icon:'user'}];
+const viewFromLocation=()=>navigation.find(item=>item.id===window.location.hash.slice(1))?.id||'home';
 const filters=[{id:'all',label:'Всё'},...Object.entries(SECTION_LABELS).map(([id,label])=>({id,label}))];
 const guide='https://github.com/Onikri/hots_tank.github.io/blob/main/media-vault/README.md';
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback;}catch{return fallback;}}
@@ -68,7 +69,7 @@ export default function App(){
   const {state,actions}=useVault();
   const importService=useImportService(state,actions);
   const reduced=useReducedMotion();
-  const [view,setView]=useState('home');
+  const [view,setView]=useState(viewFromLocation);
   const [category,setCategory]=useState('all');
   const [query,setQuery]=useState('');
   const [sort,setSort]=useState('newest');
@@ -90,7 +91,12 @@ export default function App(){
   useEffect(()=>{setLibraryId(state.libraryId);setFavorites(readLocal(localPrefix+'_saved',[]));setHistory(readLocal(localPrefix+'_history',[]));},[state.libraryId]);
   useEffect(()=>{if(!state.catalog)setSelected(null);},[state.catalog]);
   useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[view]);
-  const go=useCallback(next=>{setView(next);},[]);
+  useEffect(()=>{
+    const update=()=>setView(viewFromLocation());
+    window.addEventListener('hashchange',update);
+    return()=>window.removeEventListener('hashchange',update);
+  },[]);
+  const go=useCallback(next=>{setView(next);if(window.location.hash!=='#'+next)window.location.hash=next;},[]);
   const closeViewer=useCallback(()=>setSelected(null),[]);
   function selectCategory(id){setCategory(id);setFavoritesOnly(false);setQuery('');go('library');}
   function save(id){const next=favorites.includes(id)?favorites.filter(value=>value!==id):[...favorites,id];setFavorites(next);writeLocal(localPrefix+'_saved',next);}

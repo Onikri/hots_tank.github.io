@@ -45,8 +45,12 @@ async function run(){
     });
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
-    const response=await page.goto(base,{waitUntil:'domcontentloaded'});
+    const response=await page.goto(base+(width===390?'#import':'#home'),{waitUntil:'domcontentloaded'});
     assert.equal(response.status(),200);
+    if(width===390){
+      await page.getByRole('heading',{name:'Каталог и импорт',exact:true}).waitFor();
+      await page.goto(base+'#home',{waitUntil:'domcontentloaded'});
+    }
     await page.getByRole('heading',{name:'Твоё пространство',exact:true}).waitFor();
     const noOverflow=async view=>{
       const size=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,

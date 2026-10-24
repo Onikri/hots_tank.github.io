@@ -46,6 +46,29 @@ class StoreTests(unittest.TestCase):
 
 
 class SiteAdapterTests(unittest.TestCase):
+    def test_public_player_relay_and_modern_kodik_choices_preserve_the_selected_voice(self):
+        root='https://yummyanime.tv/70-naruto.html'
+        relay='https://yummyanime.tv/engine/ajax/controller.php?mod=player&id=70&slot=1'
+        embed='https://kodikplayer.com/serial/10/hash0/720p'
+        selected='https://kodikplayer.com/serial/12/hash2/720p'
+        outer='<div data-player-anime-id="70"><div data-player-slot="1"></div></div>'
+        choices='<div class="serial-translations-box"><select><option value="7" data-media-type="serial" data-media-id="11" data-media-hash="hash1" data-title="Studio A">Studio A (2 эп.)</option><option value="8" data-media-type="serial" data-media-id="12" data-media-hash="hash2" data-title="Studio B">Studio B (2 эп.)</option></select></div>'
+        def episodes(identity):return f'<div class="serial-series-box"><select><option value="1" data-id="{identity}" data-hash="episodehash">1 серия</option></select></div>'
+        pages={root:outer,relay:json.dumps({'status':True,'data':{'kind':'iframe','src':embed}}),embed:choices+episodes('101'),selected:choices+episodes('202')}
+        class Http:
+            def document(self,url,**kwargs):
+                if url==selected:assert kwargs.get('headers',{}).get('Referer')==embed
+                return pages[url],url,{}
+        default=inspect_source(root,http=Http())
+        self.assertEqual([x['name'] for x in default['dubs']],['Studio A','Studio B'])
+        self.assertEqual(default['episodes'][0]['url'],'https://kodikplayer.com/seria/101/episodehash/720p')
+        chosen=inspect_source(root,http=Http(),dub_url=selected)
+        self.assertEqual(chosen['episodes'][0]['url'],'https://kodikplayer.com/seria/202/episodehash/720p')
+        self.assertEqual(chosen['dubs'][1]['url'],selected)
+        with self.assertRaises(SourceError):inspect_source(root,http=Http(),dub_url='https://unpublished.example.com/serial/999/hash/720p')
+        dubs,seasons=player_choices('<div class="serial-translations-box"><select><option value="7">Numeric ID without a published player URL</option></select></div><div class="serial-seasons-box"><select><option value="2" data-serial-id="12" data-serial-hash="hash2">2 сезон</option></select></div>',embed)
+        self.assertEqual(dubs,[]);self.assertEqual(seasons[0]['url'],selected)
+
     def test_each_site_reads_its_own_search_markup(self):
         fixtures={
             'yummy':'<div class="movie-item"><a href="/70-naruto.html"><img src="/poster.webp"><div class="movie-item__title">Наруто</div></a></div>',

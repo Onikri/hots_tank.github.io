@@ -56,6 +56,8 @@ def clean(value, limit=300):
 
 
 def link(value, base):
+    if not isinstance(value, str) or not value.strip():
+        return None
     try:
         return public_url(urljoin(base, str(value)), resolve_dns=False)
     except SourceError:
@@ -106,18 +108,21 @@ def player_choices(text, base):
     choices = []
     for select in soup.select(".serial-translations-box select, select[name*=translation], select[data-type=translation]"):
         for option in select.select("option"):
-            kind, identity, digest = option.get("data-type", "serial"), option.get("data-id"), option.get("data-hash")
-            target = link(option.get("data-src") or option.get("data-link") or option.get("value"), base)
+            kind = option.get("data-media-type") or option.get("data-type", "serial")
+            identity = option.get("data-media-id") or option.get("data-id")
+            digest = option.get("data-media-hash") or option.get("data-hash")
+            explicit = option.get("data-src") or option.get("data-link") or option.get("value", "")
+            target = link(explicit, base) if explicit.startswith(("/", "https:")) else None
             if identity and digest and kind in {"serial", "video", "seria"} and re.fullmatch(r"[\w-]+", identity + digest):
                 root = urlsplit(base)
                 target = f"https://{root.netloc}/{kind}/{identity}/{digest}/720p"
             if target and (identity or target != base):
-                choices.append({"id": str(option.get("value") or identity), "name": clean(option.get_text(" "), 120), "url": target})
+                choices.append({"id": str(option.get("value") or identity), "name": clean(option.get("data-title") or option.get_text(" "), 120), "url": target})
     seasons = []
     for option in soup.select(".serial-seasons-box option, select[name*=season] option"):
         number = option.get("value", "")
         target = link(option.get("data-src") or option.get("data-link"), base)
-        identity, digest = option.get("data-id"), option.get("data-hash")
+        identity, digest = option.get("data-serial-id") or option.get("data-id"), option.get("data-serial-hash") or option.get("data-hash")
         if identity and digest and re.fullmatch(r"[\w-]+", identity + digest):
             target = f"https://{urlsplit(base).netloc}/serial/{identity}/{digest}/720p"
         if number.isdigit() and 1 <= int(number) <= 1000:
@@ -180,38 +185,64 @@ def inspect_source(url, *, http=None, dub_url=None, season=None, kind="anime"):
             return {"provider": site.id if site else "public", "title": page.title, "url": final, "dubs": [], "seasons": [],
                     "episodes": chapters or ([{"number": 1, "url": final}] if pages else []),
                     "pages": pages, "kind": "manga", "releases": []}
-        # Inspect public embedded players, preserving their real translations.
+        # Inspect bounded nested public frames, including a site's player relay.
+        # JSON iframe responses are parsed as text, never executed as scripts.
+        def embedded_pages():
+            pending = [(embed, final, 1) for embed in page.players[:8]]
+            seen = {final}
+            count = 0
+            while pending and count < 12:
+                embed, referer, depth = pending.pop(0)
+                if embed in seen or urlsplit(embed).hostname in {"www.youtube.com", "youtube.com", "youtu.be", "www.youtube-nocookie.com"}:
+                    continue
+                seen.add(embed)
+                count += 1
+                try:
+                    embedded_text, embedded_final, _ = http.document(embed, headers={"Referer": referer})
+                    embedded = parse_page(embedded_text, embedded_final)
+                except SourceError:
+                    continue
+                yield embedded_text, embedded_final, embedded
+                if depth < 3:
+                    pending.extend((child, embedded_final, depth + 1) for child in embedded.players[:8])
+
+        # A selected dub must be published by the source or its embedded player.
         if dub_url:
             candidates = [public_url(dub_url, resolve_dns=False)]
+            dub_referer = final
             allowed = {entry["url"] for entry in choices}
             if dub_url not in allowed:
                 # A selected dub belongs to an embedded player, whose choices are checked below.
                 found = False
-                for embed in page.players[:5]:
-                    embedded_text, embedded_final, _ = http.document(embed)
+                for embedded_text, embedded_final, _ in embedded_pages():
                     values, _ = player_choices(embedded_text, embedded_final)
                     if dub_url in {entry["url"] for entry in values}:
                         found = True
                         choices = values
+                        dub_referer = embedded_final
                         break
                 if not found:
                     raise SourceError("Выбранная озвучка больше не найдена на странице. Обнови список.")
         else:
-            candidates = page.players[:5]
-        episodes = page.episodes
-        for embed in candidates:
-            try:
-                embedded_text, embedded_final, _ = http.document(embed)
-                embedded = parse_page(embedded_text, embedded_final)
-                new_choices, new_seasons = player_choices(embedded_text, embedded_final)
-                choices = choices or new_choices
-                seasons = seasons or new_seasons
-                if embedded.episodes:
-                    episodes = embedded.episodes
-                    if dub_url or not choices:
-                        break
-            except SourceError:
-                continue
+            candidates = None
+        episodes = [] if dub_url else page.episodes
+        if candidates:
+            selected_text, selected_final, _ = http.document(candidates[0], headers={"Referer": dub_referer})
+            selected_page = parse_page(selected_text, selected_final)
+            documents = [(selected_text, selected_final, selected_page)]
+        else:
+            documents = embedded_pages()
+        for embedded_text, embedded_final, embedded in documents:
+            new_choices, new_seasons = player_choices(embedded_text, embedded_final)
+            choices = (new_choices or choices) if dub_url else (choices or new_choices)
+            seasons = new_seasons if dub_url else (seasons or new_seasons)
+            if embedded.episodes:
+                episodes = embedded.episodes
+                break
+            target = urlsplit(embedded_final)
+            if target.hostname in {"kodikplayer.com", "kodik.info", "kodik.biz", "kodik.cc", "aniqit.com"} and re.match(r"/video/[\w-]+/[\w-]+(?:/|$)", target.path):
+                episodes = [{"number": 1, "title": "Видео", "url": embedded_final}]
+                break
         if not episodes and page.streams:
             episodes = [{"number": episode_number(final) or 1, "url": final}]
         # Episode season/translation values are recorded, never guessed from a total count.
