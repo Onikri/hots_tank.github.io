@@ -16,13 +16,16 @@ const RU_BY_ID=Object.freeze({
   11061:"Охотник х Охотник",
   199:"Унесённые призраками"
 });
+function validTrailer(value){try{const u=new URL(value);return u.protocol==="https:"&&
+  (u.hostname==="youtube.com"||u.hostname==="www.youtube.com"||u.hostname==="youtu.be"||u.hostname==="www.youtube-nocookie.com")?u.href:"";}catch{return "";}}
 function cyrillic(str){return /[А-Яа-яЁё]/.test(String(str||""));}
 export function imageCandidates(item){
   const sources=[item?.image,item?.imageFallback,item?.shikiImage];
   return [...new Set(sources.filter(x=>{
     try{const u=new URL(x);return u.protocol==="https:"&&
       (u.hostname==="cdn.myanimelist.net"||u.hostname.endsWith(".myanimelist.net")||
-       u.hostname==="shikimori.one"||u.hostname.endsWith(".shikimori.one"));}catch{return false;}
+       u.hostname==="shikimori.one"||u.hostname.endsWith(".shikimori.one")||
+       u.hostname==="desu.shikimori.one"||u.hostname==="poster.cdnvideohub.com"));}catch{return false;}
   }))];
 }
 export async function localizeCards(cards,{signal}={}){
@@ -81,7 +84,8 @@ export function toCard(d){
     description:d?.synopsis||"Описание не опубликовано.",episodes:Number.isFinite(d?.episodes)?d.episodes:null,
     score:Number.isFinite(d?.score)?d.score:null,year:d?.year||null,
     status:d?.status||"Не указан",type:d?.type||"TV",source:"Jikan / MyAnimeList",
-    url:d?.url||"",aired:d?.aired?.string||""
+    url:d?.url||"",aired:d?.aired?.string||"",
+    trailerUrl:validTrailer(d?.trailer?.url||d?.trailer?.embed_url||"")
   };
 }
 async function request(path,{signal}={}){

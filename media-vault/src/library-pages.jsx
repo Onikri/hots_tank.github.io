@@ -4,14 +4,15 @@ import {Search,CloudUpload,Film,BookOpen,ExternalLink,ArrowLeft,Info,ShieldCheck
 import {demoTitles,lookupTitles,animeDetails,episodeMetadata,validateSavedEntry,imageCandidates} from "./metadata.js";
 import {searchAniLibria,getAniLibriaRelease} from "./streaming.js";
 import "./pages.css";
+import YummyPanel from "./yummy-panel.jsx";
 
 const fallback=[
-{id:52991,title:"Sousou no Frieren",originalTitle:"Frieren: Beyond Journey's End",image:"",description:"Популярное фэнтези-аниме. Подробные сведения загружаются из открытого каталога.",episodes:null,score:null},
-{id:5114,title:"Fullmetal Alchemist: Brotherhood",image:"",description:"Фэнтези и приключения. Открой карточку для получения данных.",episodes:null,score:null},
-{id:9253,title:"Steins;Gate",image:"",description:"Научная фантастика. Открой карточку для получения данных.",episodes:null,score:null},
-{id:16498,title:"Attack on Titan",image:"",description:"Приключенческое фэнтези. Открой карточку для получения данных.",episodes:null,score:null},
-{id:32281,title:"Your Name",image:"",description:"Анимационный фильм. Открой карточку для получения данных.",episodes:null,score:null},
-{id:38000,title:"Demon Slayer",image:"",description:"Фэнтези и приключения. Открой карточку для получения данных.",episodes:null,score:null}
+{id:52991,title:"Провожающая в последний путь Фрирен",originalTitle:"Frieren: Beyond Journey's End",image:"",description:"Популярное фэнтези-аниме. Подробные сведения загружаются из открытого каталога.",episodes:null,score:null},
+{id:5114,title:"Стальной алхимик: Братство",image:"",description:"Фэнтези и приключения. Открой карточку для получения данных.",episodes:null,score:null},
+{id:9253,title:"Врата Штейна",image:"",description:"Научная фантастика. Открой карточку для получения данных.",episodes:null,score:null},
+{id:16498,title:"Атака титанов",image:"",description:"Приключенческое фэнтези. Открой карточку для получения данных.",episodes:null,score:null},
+{id:32281,title:"Твоё имя",image:"",description:"Анимационный фильм. Открой карточку для получения данных.",episodes:null,score:null},
+{id:38000,title:"Клинок, рассекающий демонов",image:"",description:"Фэнтези и приключения. Открой карточку для получения данных.",episodes:null,score:null}
 ];
 function Poster({item}){
  const urls=imageCandidates(item);
@@ -208,6 +209,7 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
      <button className="solid-button" disabled={lookupBusy} type="submit"><Search size={18}/>{lookupBusy?"Ищем…":"Найти карточку"}</button>
    </form>
    <p className="directory-hint">Из сторонней ссылки берётся только название для поиска. Обложка, русское название и описание берутся из Shikimori/Jikan, а доступные для просмотра серии можно отдельно искать в AniLibria. YummyAnime требует собственный API-токен X-Application; без него видео с YummyAnime автоматически не извлекаются.</p>
+   <YummyPanel initialUrl={source?.sourceName==="YummyAnime"?source.sourceUrl:""}/>
    {lookupError&&<div className="directory-notice" role="alert">{lookupError}</div>}
    {!!matches.length&&<><h2 className="directory-subheading">Результаты поиска · {matches.length}</h2><div className="directory-grid">{matches.map(x=><MediaCard key={x.id} item={x} onClick={()=>choose(x)}/>)}</div></>}
   </>}
@@ -222,10 +224,12 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
        <span>{detail.episodes==null?"Серии не уточнены":detail.episodes+" эпизодов по Jikan"}</span></div>
      <p className="detail-synopsis">{detail.description}</p>
      <div className="detail-actions"><button className="solid-button" disabled={saving} onClick={()=>save(detail)} type="button"><FolderPlus size={17}/>{saving?"Сохранение…":"В мою библиотеку"}</button>
+      {detail.trailerUrl&&<a className="quiet-button" href={detail.trailerUrl} target="_blank" rel="noopener noreferrer"><PlayCircle size={16}/> Трейлер</a>}
       {detail.url&&<a className="quiet-button" href={detail.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Источник метаданных</a>}
       {source?.sourceUrl&&<a className="quiet-button" href={source.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Открыть на {source.sourceName}</a>}</div>
      {saveMessage&&<p className="directory-notice" role="status">{saveMessage}</p>}
     </div></div>
+    <YummyPanel key={String(detail.id)} initialUrl={source?.sourceName==="YummyAnime"?source.sourceUrl:""}/>
     <PublicReleasePanel title={detail}/>
     <h2 className="directory-subheading">Эпизоды MyAnimeList <small>информационный список, не видео</small></h2>
     {episodes.length?<div className="episodes-list">{episodes.map((ep,i)=><div key={ep.number||i} className="episode-row"><span className="episode-number">{ep.number||i+1}</span><span>{ep.title}</span><small>{ep.aired?new Date(ep.aired).toLocaleDateString("ru"):""}</small></div>)}</div>:<div className="directory-tip"><Info size={18}/> Список эпизодов не опубликован или временно недоступен.</div>}
