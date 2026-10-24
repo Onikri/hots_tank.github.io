@@ -64,6 +64,10 @@ export function useImportService(state,actions){
     }
   },[jobs,state.catalog?.folderId,!!state.busy,state.driveConnected]);
   async function refresh(){const result=await client.authenticate();setSession(result);const data=await client.request('/jobs');setJobs(data.jobs);setStatus('connected');return result;}
+  async function configureGoogle(configuration){
+    await client.request('/admin/google-oauth',{method:'POST',body:configuration});
+    return refresh();
+  }
   async function connect(){
     const popup=window.open('about:blank','mediavault-drive-consent','popup,width=560,height=720');
     if(!popup)throw Error('Разреши всплывающее окно для подключения Google Drive.');
@@ -86,6 +90,6 @@ export function useImportService(state,actions){
     setJobs(old=>[task,...old.filter(value=>value.id!==task.id)]);return task;
   }
   async function operation(id,op){const task=await client.request('/jobs/'+encodeURIComponent(id)+'/'+op,{method:'POST'});setJobs(old=>old.map(value=>value.id===id?task:value));return task;}
-  return {server,setServer,status,error,session,jobs,active,connect,submit,refresh,
+  return {server,setServer,status,error,session,jobs,active,connect,submit,refresh,configureGoogle,
     request:client.request,cancel:id=>operation(id,'cancel'),resume:id=>operation(id,'resume')};
 }

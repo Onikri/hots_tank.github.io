@@ -164,14 +164,18 @@ async function main() {
   }
   const textItem=catalog.items.find(item=>item.name==='private-note.txt');
   // The automatic import sends only control data/key to the owner's server, never source bytes.
-  const sourceRequests=[],submitted=[];let fakeTask=null;
+  const sourceRequests=[],submitted=[];let fakeTask=null,googleConfigured=false,googleConfiguration=null;
   owner.on('request',request=>{if(new URL(request.url()).hostname==='source.example.com')sourceRequests.push(request.url());});
   await owner.route('https://import.example.com/**',async route=>{
     const request=route.request(),url=new URL(request.url());
     const respond=(data,status=200)=>route.fulfill({status,headers:cors,contentType:'application/json',body:JSON.stringify(data)});
     if(request.method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
-    if(url.pathname==='/health')return respond({application:'MediaVault',version:4,origin:new URL(base).origin,oauthConfigured:true});
-    if(url.pathname==='/auth/session')return respond({token:'fixture-server-session',driveConnected:true,oauthConfigured:true});
+    if(url.pathname==='/health')return respond({application:'MediaVault',version:4,origin:new URL(base).origin,oauthConfigured:googleConfigured});
+    if(url.pathname==='/auth/session')return respond({token:'fixture-server-session',driveConnected:true,oauthConfigured:googleConfigured});
+    if(url.pathname==='/admin/google-oauth'){
+      assert.equal(request.headers().authorization,'Bearer fixture-server-session');
+      googleConfiguration=request.postDataJSON();googleConfigured=true;return respond({oauthConfigured:true});
+    }
     if(url.pathname==='/jobs'&&request.method()==='POST'){
       const body=request.postDataJSON();submitted.push(body);
       fakeTask={id:'task-1',created:Date.now()/1000,status:'queued',progress:{title:body.job.collection,total:2,saved:0,phase:'queued'}};
@@ -188,6 +192,14 @@ async function main() {
   await owner.locator('#importServer').fill('https://import.example.com');
   await owner.locator('.server-address-form').getByRole('button',{name:'Подключить',exact:true}).click();
   await owner.getByText('Drive подключён',{exact:true}).waitFor();
+  await owner.getByRole('heading',{name:'Подключи фоновый импорт один раз',exact:true}).waitFor();
+  const publicClientId=await owner.evaluate(()=>window.MEDIA_VAULT_CONFIG.googleClientId);
+  const fixtureClientSecret='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456789';
+  await owner.locator('#googleOAuthFile').setInputFiles({name:'oauth-fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({web:{client_id:publicClientId,client_secret:fixtureClientSecret}}))});
+  await owner.getByRole('button',{name:'Сохранить настройки Google',exact:true}).click();
+  await owner.getByRole('heading',{name:'Подключи фоновый импорт один раз',exact:true}).waitFor({state:'detached'});
+  assert.deepEqual(googleConfiguration,{client_id:publicClientId,client_secret:fixtureClientSecret});
+  assert.ok(!(await owner.evaluate(()=>JSON.stringify({...localStorage})) ).includes(fixtureClientSecret),'Private Google settings never enter browser storage');
   await owner.getByRole('tab',{name:'По ссылке',exact:true}).click();
   await owner.locator('#streamUrl').fill('https://source.example.com/season');
   await owner.getByRole('button',{name:'Проверить',exact:true}).click();

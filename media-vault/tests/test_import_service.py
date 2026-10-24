@@ -73,6 +73,32 @@ class SiteAdapterTests(unittest.TestCase):
 
 
 class ApiTests(unittest.TestCase):
+    def test_owner_can_save_private_google_configuration_encrypted_without_echo(self):
+        from fastapi.testclient import TestClient
+        import api
+        secret='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e-0123456'
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'DATA_DIR':directory,'MEDIA_VAULT_DISABLE_WORKER':'1'}),patch.object(api,'CLIENT_SECRET',''),patch.object(api,'PUBLIC_URL','https://import.example.com'),patch.object(api,'REDIRECT','https://import.example.com/oauth/callback'):
+            with TestClient(api.app) as client,patch.object(api,'google_user',return_value={'sub':'owner'}):
+                body={'client_id':api.CLIENT_ID,'client_secret':secret}
+                self.assertFalse(client.get('/health').json()['oauthConfigured'])
+                self.assertEqual(client.post('/admin/google-oauth',json=body).status_code,401)
+                session=client.post('/auth/session',headers={'Authorization':'Bearer google-fixture'}).json()
+                headers={'Authorization':'Bearer '+session['token'],'Origin':api.ORIGIN}
+                denied=client.post('/admin/google-oauth',headers={**headers,'Origin':'https://other.example.com'},json=body)
+                self.assertEqual(denied.status_code,403)
+                wrong=client.post('/admin/google-oauth',headers=headers,json={**body,'client_id':'another.apps.googleusercontent.com'})
+                self.assertEqual(wrong.status_code,422);self.assertNotIn(secret,wrong.text)
+                response=client.post('/admin/google-oauth',headers=headers,json=body)
+                self.assertEqual(response.status_code,200);self.assertNotIn(secret,response.text)
+                self.assertTrue(client.get('/health').json()['oauthConfigured'])
+                self.assertNotIn(secret,client.get('/health').text)
+                self.assertEqual(api.client_secret(),secret)
+                self.assertEqual(client.post('/oauth/start',headers=headers).status_code,200)
+            self.assertNotIn(secret.encode(),(Path(directory)/'tasks.sqlite').read_bytes())
+            with TestClient(api.app) as client:
+                self.assertTrue(client.get('/health').json()['oauthConfigured'],'Configuration survives a server restart')
+                self.assertEqual(api.client_secret(),secret)
+
     def test_owner_auth_private_queue_and_no_credential_echo(self):
         from fastapi.testclient import TestClient
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'DATA_DIR':directory,'MEDIA_VAULT_DISABLE_WORKER':'1'}):

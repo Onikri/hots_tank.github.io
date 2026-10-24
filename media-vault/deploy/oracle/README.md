@@ -76,7 +76,16 @@ import service or invent Google credentials.
 
 On the VM set `deploy/oracle/.env`: the HTTPS hostname, existing public Google
 web Client ID and its Client Secret. The secret is used only by the VM to finish
-Google's offline authorization flow; it never goes into GitHub or the website.
+Google's offline authorization flow; it never goes into GitHub or the public
+website configuration. Alternatively, leave the secret empty, start the service
+and sign in as the verified owner on the website. Under Import → Import server,
+add the shown redirect URI in Google Cloud, then select the Web OAuth client's
+JSON file in the private configuration form. The browser reads that file locally
+and sends only the matching client ID and secret to the owner's HTTPS server.
+The server stores the secret encrypted with its private service key; responses,
+logs, browser storage and GitHub never receive it. Owner authentication and the
+existing origin checks are required for saving this configuration. Metadata
+works before this step; Drive import still requires one-time Google consent.
 Point a domain at the public IP, or use `<IP>.sslip.io`. Caddy obtains an HTTPS
 certificate automatically. Open inbound 80/443 in OCI and the OS firewall; 7860
 remains inside the Docker network. Run `sudo bash start.sh` from this directory.
@@ -103,3 +112,14 @@ during an import. User cancellation takes effect between files.
 To update application code, pull the sparse checkout and run `start.sh` again.
 The private data volume is retained; tasks interrupted by a restart are queued
 again and skip completed Drive files.
+
+## Current owner deployment
+
+Provisioned on 2026-10-24 in the tenancy's home region, `eu-frankfurt-1`, AD-2:
+one `VM.Standard.A1.Flex`, 2 OCPUs / 12 GB RAM, 50 GB balanced boot volume.
+The account remains Free Trial / Always Free; no paid upgrade was performed.
+The public HTTPS service is `https://141.144.225.42.sslip.io` and the Google
+redirect URI is `https://141.144.225.42.sslip.io/oauth/callback`.
+Only ports 80/443 are exposed; importer port 7860 remains on the Docker network.
+Native OCI Run Command is scoped to this VM for management. The temporary
+assistant API key is revoked after infrastructure setup.

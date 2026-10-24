@@ -4,7 +4,7 @@ window.MEDIA_VAULT_CONFIG = Object.freeze({
   adminEmailSha256: "4aeabbd305272323d256ba5fff0d7783536729bda8b1b06befeb0cea19f29b7c",
   // Empty: the verified administrator creates a new folder in their own Google Drive.
   storageFolderId: "",
-  // Set after the owner deploys the import service. Public HTTPS address only.
-  importServerUrl: "",
+  // Owner's Oracle Always Free service. Public HTTPS address only.
+  importServerUrl: "https://141.144.225.42.sslip.io",
   applicationName: "MediaVault"
 });

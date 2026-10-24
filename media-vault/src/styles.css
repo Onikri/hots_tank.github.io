@@ -33,6 +33,14 @@
 .server-settings-body { padding: 0 16px 16px; color: var(--muted); font-size: 12px; }
 .server-settings-body .form-actions { margin-bottom: 16px; }
 .server-address-form { margin: 18px 0; }
+.google-oauth-setup { border-top: 1px solid var(--line); padding-top: 15px; margin-top: 16px; }
+.google-oauth-setup h3 { color: var(--text); font-size: 14px; }
+.google-oauth-setup a { color: var(--accent); }
+.google-oauth-setup details { margin: 14px 0; }
+.google-oauth-setup summary { padding: 0; font-size: 11px; color: var(--muted); font-weight: 500; }
+.google-oauth-setup .field-input { width: 100%; margin: 6px 0; }
+.oauth-redirect { display: flex; align-items: center; gap: 8px; background: var(--bg); padding: 8px 10px; border-radius: 8px; }
+.oauth-redirect code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: #dec4b5; }
 .catalog-intro { min-height: 240px; position: relative; isolation: isolate; overflow: hidden; border: 1px solid #44342a; border-radius: 16px; padding: 30px 34px; background: linear-gradient(125deg,#2a211d,#1b1b1e 76%); }
 .catalog-intro h2 { font-size: clamp(28px,4vw,40px); line-height: 1.12; margin: 12px 0 14px; letter-spacing: -1.3px; position: relative; z-index: 1; }
 .catalog-intro h2 em { font-style: normal; color: #ffa26e; }

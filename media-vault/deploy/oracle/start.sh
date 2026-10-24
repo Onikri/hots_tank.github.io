@@ -10,8 +10,8 @@ values = dict(line.split('=',1) for line in Path('.env').read_text().splitlines(
 host=values.get('SERVER_NAME','')
 if not re.fullmatch(r'[a-zA-Z0-9.-]+',host) or '.' not in host or 'replace-' in host:
     raise SystemExit('Set SERVER_NAME in the private .env before starting.')
-if not values.get('GOOGLE_CLIENT_SECRET','').strip():
-    raise SystemExit('Set GOOGLE_CLIENT_SECRET only in this VM’s private .env.')
+# The verified owner may configure the private OAuth secret through the HTTPS
+# settings form. Until then metadata works and Drive imports remain unavailable.
 origin=urlsplit(values.get('ALLOWED_ORIGIN',''))
 if origin.scheme != 'https' or not origin.netloc or origin.path not in ('','/'):
     raise SystemExit('ALLOWED_ORIGIN must be the HTTPS website origin.')

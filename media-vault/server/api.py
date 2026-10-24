@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 import requests
 
 from metadata_catalog import metadata
@@ -41,6 +41,11 @@ REDIRECT = PUBLIC_URL + "/oauth/callback"
 store = None
 stopping = threading.Event()
 wakeup = threading.Event()
+
+
+def client_secret():
+    configured = store.setting("configuration:google-oauth") if store else None
+    return configured["client_secret"] if configured else CLIENT_SECRET
 
 
 def b64url(value):
@@ -81,11 +86,12 @@ def google_user(token):
 
 def drive_credentials(subject):
     value = store.setting("google:" + subject)
-    if not value or not CLIENT_SECRET:
+    secret = client_secret()
+    if not value or not secret:
         raise VaultError("Подключи Google Drive к серверу один раз в настройках импорта.")
     from google.oauth2.credentials import Credentials
     return Credentials(token=None, refresh_token=value["refresh_token"], token_uri="https://oauth2.googleapis.com/token",
-                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET,
+                       client_id=CLIENT_ID, client_secret=secret,
                        scopes=["openid", "email", "profile", "https://www.googleapis.com/auth/drive"])
 
 
@@ -196,7 +202,7 @@ class StrictBody(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"application": "MediaVault", "version": 4, "oauthConfigured": bool(CLIENT_SECRET and PUBLIC_URL.startswith("https://")),
+    return {"application": "MediaVault", "version": 4, "oauthConfigured": bool(client_secret() and PUBLIC_URL.startswith("https://")),
             "origin": ORIGIN, "worker": "server", "paidServices": False}
 
 
@@ -206,12 +212,28 @@ def authenticate(authorization: str = Header(default="")):
         raise HTTPException(401, "Нужен вход через Google.")
     user = google_user(authorization[7:])
     return {"token": session_token(user["sub"]), "driveConnected": bool(store.setting("google:" + user["sub"])),
-            "oauthConfigured": bool(CLIENT_SECRET and PUBLIC_URL.startswith("https://"))}
+            "oauthConfigured": bool(client_secret() and PUBLIC_URL.startswith("https://"))}
+
+
+class GoogleOAuthConfiguration(StrictBody):
+    client_id: str = Field(max_length=200)
+    client_secret: SecretStr
+
+
+@app.post("/admin/google-oauth")
+def configure_google(body: GoogleOAuthConfiguration, subject=Depends(owner)):
+    secret = body.client_secret.get_secret_value().strip()
+    if body.client_id != CLIENT_ID or not re.fullmatch(r"[A-Za-z0-9_-]{20,200}", secret):
+        raise HTTPException(422, "Нужны настройки существующего Web OAuth-клиента MediaVault.")
+    if not PUBLIC_URL.startswith("https://"):
+        raise HTTPException(503, "Сначала настрой HTTPS сервера.")
+    store.setting("configuration:google-oauth", {"client_secret": secret})
+    return {"oauthConfigured": True, "redirectUri": REDIRECT}
 
 
 @app.post("/oauth/start")
 def oauth_start(subject=Depends(owner)):
-    if not CLIENT_SECRET or not PUBLIC_URL.startswith("https://"):
+    if not client_secret() or not PUBLIC_URL.startswith("https://"):
         raise HTTPException(503, "Администратору нужно завершить одноразовую настройку Google OAuth на сервере.")
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(48)
@@ -230,7 +252,7 @@ def oauth_callback(state: str = "", code: str = "", error: str = ""):
         raise HTTPException(400, "Разрешение Google отменено или устарело. Повтори подключение на сайте.")
     try:
         response = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT, "grant_type": "authorization_code", "code_verifier": pending["verifier"]}, timeout=(6, 20))
+            "client_secret": client_secret(), "redirect_uri": REDIRECT, "grant_type": "authorization_code", "code_verifier": pending["verifier"]}, timeout=(6, 20))
         response.raise_for_status()
         tokens = response.json()
     except (requests.RequestException, ValueError):
