@@ -34,7 +34,7 @@ jobs:
         run: |
           npm install --prefix media-vault --no-audit --no-fund --no-package-lock
           npm run build --prefix media-vault
-          node --test media-vault/tests/range.test.cjs media-vault/tests/metadata.test.mjs media-vault/tests/yummy.test.mjs media-vault/tests/streaming.test.mjs
+          node --test media-vault/tests/range.test.cjs media-vault/tests/metadata.test.mjs media-vault/tests/yummy-html.test.mjs media-vault/tests/streaming.test.mjs
 
       - name: Visual and interaction tests
         run: |
