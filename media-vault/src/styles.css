@@ -44,9 +44,16 @@
 .catalog-search-wrap { position: relative; z-index: 15; }
 .catalog-search { margin-bottom: 0; }
 .catalog-search .search-input { font-size: 13px; }
+.catalog-search-hint { color: var(--muted); font-size: 11px; margin: 9px 2px 0; }
+.catalog-search>.icon-button { flex-shrink: 0; }
+.prediction-message { color: var(--muted); font-size: 11px; padding: 12px; line-height: 1.6; }
+.catalog-retry { display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--accent); font-size: 10px; padding: 4px; }
+.catalog-retry:disabled { opacity: .5; cursor: wait; }
+.catalog-spelling { margin: -10px 0 18px; }
 .filter-toggle { border-left: 1px solid var(--line); border-radius: 0; flex-shrink: 0; }
 .filter-toggle.is-active { color: var(--accent); }
 .catalog-predictions { position: absolute; top: calc(100% + 7px); left: 0; right: 0; border: 1px solid #47413c; border-radius: 12px; background: #242326; padding: 6px; box-shadow: 0 18px 40px #0009; max-height: 430px; overflow-y: auto; }
+.catalog-predictions.is-above { top: auto; bottom: calc(100% + 7px); }
 .catalog-predictions>button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px; text-align: left; border-radius: 8px; background: transparent; }
 .catalog-predictions>button:hover,.catalog-predictions>button.prediction-active { background: #ffffff0b; }
 .prediction-cover { width: 35px; height: 48px; border-radius: 4px; overflow: hidden; flex-shrink: 0; }

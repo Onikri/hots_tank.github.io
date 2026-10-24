@@ -1,6 +1,22 @@
 // Free metadata only. Source discovery and every media byte stay on the import server.
 const strip=value=>String(value||'').replace(/<[^>]*>/g,' ').replace(/\[\/?(?:b|i|u|url|spoiler|quote)[^\]]*\]/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();
 export const normalized=value=>String(value||'').normalize('NFKC').toLocaleLowerCase().replace(/ё/g,'е').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+// A spelling fallback, not a translation: e.g. Наруто → naruto. Keep the
+// original query and metadata intact; translated titles still need catalogue aliases.
+const cyrillic={а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'yo',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'shch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',і:'i',ї:'yi',є:'ye',ґ:'g'};
+export function alternateSpelling(query){
+  const value=String(query||'').normalize('NFKC').trim();
+  return value.length>=2&&/[а-яёіїєґ]/i.test(value)?value.toLocaleLowerCase().replace(/[а-яёіїєґ]/g,char=>cyrillic[char]):'';
+}
+export function rankCatalog(items,query){
+  const terms=[query,alternateSpelling(query)].map(normalized).filter(Boolean);
+  if(!terms.length)return items;
+  const score=item=>Math.max(0,...item.aliases.flatMap(alias=>terms.map(term=>{
+    const value=normalized(alias);
+    return value===term?1000:value.startsWith(term+' ')?800:value.startsWith(term)?700:value.includes(term)?500:term.split(' ').every(word=>value.includes(word))?300:0;
+  })));
+  return items.map((item,index)=>({item,index,score:score(item)})).sort((a,b)=>b.score-a.score||a.index-b.index).map(value=>value.item);
+}
 export const safeImage=value=>{try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
 const yearOf=value=>value?Number(String(value).slice(0,4))||null:null;
 const fuzzyDate=value=>!value?.year?null:[value.year,...(value.month?[String(value.month).padStart(2,'0')]:[]),...(value.month&&value.day?[String(value.day).padStart(2,'0')]:[])].join('-');
@@ -90,7 +106,7 @@ export function providerUrl(provider,{query='',kind='anime',page=1,identity,year
   if(server){const url=new URL('metadata/'+provider,server+'/');for(const [key,value]of Object.entries({q:query,kind,page,identity,year}))if(value)url.searchParams.set(key,value);return url.href;}
   const resource=['manga','ranobe'].includes(kind)?'manga':'anime';
   if(provider==='kitsu'){
-    const url=new URL('https://kitsu.io/api/edge/'+resource+(identity?'/'+identity:''));url.searchParams.set('include','genres,categories');
+    const url=new URL('https://kitsu.io/api/edge/'+resource+(identity?'/'+identity:''));url.searchParams.set('include','genres,categories,mappings');
     if(!identity){url.searchParams.set('page[limit]',16);url.searchParams.set('page[offset]',(page-1)*16);if(query)url.searchParams.set('filter[text]',query);else url.searchParams.set('sort','-userCount');if(year&&resource==='anime')url.searchParams.set('filter[seasonYear]',year);}
     return url.href;
   }
@@ -104,6 +120,7 @@ export function providerUrl(provider,{query='',kind='anime',page=1,identity,year
 
 const aniFields='id idMal title{romaji english native} synonyms description coverImage{large} format status genres tags{name} isAdult episodes chapters volumes seasonYear startDate{year month day} endDate{year month day} siteUrl nextAiringEpisode{episode airingAt} airingSchedule(perPage:50,notYetAired:true){nodes{episode airingAt}}';
 export async function fetchCatalog(provider,options,fetcher=fetch){
+  options.signal?.throwIfAborted();
   const url=providerUrl(provider,options),abort=new AbortController(),signal=options.signal;
   const stop=()=>abort.abort();signal?.addEventListener('abort',stop,{once:true});
   const timeout=setTimeout(stop,16000);
@@ -113,7 +130,13 @@ export async function fetchCatalog(provider,options,fetcher=fetch){
     const response=await fetcher(url,init);
     if(!response.ok)throw Error(response.status===429?'Слишком частые запросы':'Каталог временно недоступен');
     const data=await response.json();if(data.errors)throw Error('Каталог не ответил на запрос');
-    return normalizeCatalog(provider,data,options.kind);
+    const items=normalizeCatalog(provider,data,options.kind);
+    const alternate=!options.identity&&!options.spellingFallback&&['kitsu','anilist','jikan'].includes(provider)&&alternateSpelling(options.query);
+    if(!items.length&&alternate){
+      clearTimeout(timeout);options.signal?.throwIfAborted();
+      return (await fetchCatalog(provider,{...options,query:alternate,spellingFallback:true},fetcher)).map(item=>({...item,searchSpelling:alternate}));
+    }
+    return items;
   }finally{clearTimeout(timeout);signal?.removeEventListener('abort',stop);}
 }
 export function catalogProviders(kind,query,server){

@@ -55,7 +55,7 @@ def metadata(provider, *, query="", kind="anime", page=1, identity=None, year=No
             return cached[1]
     resource = "manga" if kind in {"manga", "ranobe"} else "anime"
     if provider == "kitsu":
-        params = {"include": "genres,categories"}
+        params = {"include": "genres,categories,mappings"}
         if not identity:
             params.update({"page[limit]": 16, "page[offset]": (page - 1) * 16})
             if query:

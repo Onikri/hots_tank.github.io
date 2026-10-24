@@ -1,31 +1,49 @@
-import {useEffect,useRef,useState} from 'react';
-import {catalogProviders,fetchCatalog,mergeCatalog} from './catalog.js';
+import {useCallback,useEffect,useState} from 'react';
+import {catalogProviders,fetchCatalog,mergeCatalog,rankCatalog} from './catalog.js';
 
 const cache=new Map();
-export function useCatalog(query,kind,year,server,page=1){
-  const [items,setItems]=useState([]),[statuses,setStatuses]=useState({}),[loading,setLoading]=useState(false);
-  const version=useRef(0);
+const emptyItems=Object.freeze([]),emptyStatuses=Object.freeze({});
+export function useCatalog(query,kind,year,server,page=1,composing=false){
+  const text=query.trim(),cacheKey=JSON.stringify([text,kind,year,server,page]);
+  const [revision,setRevision]=useState(0),[snapshot,setSnapshot]=useState(null);
+  const key=cacheKey+':'+revision+':'+composing;
+  const retry=useCallback(()=>{cache.delete(cacheKey);setRevision(value=>value+1);},[cacheKey]);
   useEffect(()=>{
-    const generation=++version.current,abort=new AbortController();
-    // Never offer titles from an older query while the new debounce is pending.
-    setItems([]);setStatuses({});setLoading(true);
-    const current=()=>generation===version.current&&!abort.signal.aborted;
+    if(composing)return;
+    const abort=new AbortController(),names=catalogProviders(kind,text,server);
+    const cached=cache.get(cacheKey);
+    if(cached&&cached.expires>Date.now()){
+      setSnapshot({key,...cached,loading:false});return;
+    }
+    const states=Object.fromEntries(names.map(name=>[name,'loading'])),results={};
+    const items=()=>rankCatalog(mergeCatalog(names.flatMap(name=>results[name]||[])),text);
+    setSnapshot({key,items:[],statuses:{...states},loading:names.length>0});
     const timer=setTimeout(()=>{
-      const names=catalogProviders(kind,query.trim(),server),key=JSON.stringify([query.trim(),kind,year,server,page]);
-      const cached=cache.get(key);
-      if(cached&&cached.expires>Date.now()){setItems(cached.items);setStatuses(cached.statuses);setLoading(false);return;}
-      setItems([]);setStatuses(Object.fromEntries(names.map(name=>[name,'loading'])));setLoading(names.length>0);
-      const results=[],states={};
       Promise.allSettled(names.map(async provider=>{
-        try{const found=await fetchCatalog(provider,{query:query.trim(),kind,year,server,page,signal:abort.signal});if(!current())return;results.push(...found);states[provider]='ok';setItems(mergeCatalog(results));}
-        catch(error){if(!current())return;states[provider]='unavailable';}
-        if(current())setStatuses({...states,...Object.fromEntries(names.filter(n=>!states[n]).map(n=>[n,'loading']))});
+        try{
+          const found=await fetchCatalog(provider,{query:text,kind,year,server,page,signal:abort.signal});
+          if(abort.signal.aborted)return;
+          results[provider]=found;states[provider]='ok';
+        }catch(error){
+          if(abort.signal.aborted)return;
+          states[provider]='unavailable';
+        }
+        if(!abort.signal.aborted)setSnapshot({key,items:items(),statuses:{...states},loading:Object.values(states).includes('loading')});
       })).then(()=>{
-        if(!current())return;setLoading(false);cache.set(key,{items:mergeCatalog(results),statuses:states,expires:Date.now()+180000});
-        while(cache.size>60)cache.delete(cache.keys().next().value);
+        if(abort.signal.aborted)return;
+        const complete={items:items(),statuses:{...states}};
+        setSnapshot({key,...complete,loading:false});
+        // Do not make temporary provider outages persist for three minutes.
+        if(names.length&&names.every(name=>states[name]==='ok')){
+          cache.set(cacheKey,{...complete,expires:Date.now()+180000});
+          while(cache.size>60)cache.delete(cache.keys().next().value);
+        }
       });
-    },query?350:0);
+    },text?350:0);
     return()=>{clearTimeout(timer);abort.abort();};
-  },[query,kind,year,server,page]);
-  return {items,statuses,loading};
+  },[key]);
+  // Clear old choices in the same render as input/type/page changes, before
+  // effects run. IME composition never dispatches intermediate search terms.
+  const current=snapshot?.key===key?snapshot:{items:emptyItems,statuses:emptyStatuses,loading:!composing};
+  return {...current,retry};
 }

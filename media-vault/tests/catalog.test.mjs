@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCatalog,mergeCatalog,matchesFilters,providerUrl,safeImage} from '../src/catalog.js';
+import {normalizeCatalog,mergeCatalog,matchesFilters,providerUrl,safeImage,alternateSpelling,rankCatalog,fetchCatalog} from '../src/catalog.js';
 
 test('metadata providers merge the same MAL title and preserve multilingual aliases and real dates',()=>{
   const shiki=normalizeCatalog('shikimori',[{id:20,russian:'Наруто',name:'Naruto',kind:'tv',aired_on:'2002-10-03',episodes:220,rating:'pg_13',image:{original:'/system/animes/original/20.jpg'},url:'/animes/20',genres:[{name:'Action',russian:'Экшен'}]}]);
@@ -23,4 +23,34 @@ test('matching names in different years or media types do not collapse into one 
   assert.equal(mergeCatalog(records).length,3);
   const url=new URL(providerUrl('kitsu',{query:'나루토 火影忍者',kind:'manga'}));assert.equal(url.searchParams.get('filter[text]'),'나루토 火影忍者');
   const relay=new URL(providerUrl('imdb',{query:'Матрица',kind:'movie',server:'https://import.example.com'}));assert.equal(relay.pathname,'/metadata/imdb');assert.equal(relay.searchParams.get('q'),'Матрица');
+});
+
+test('exact multilingual aliases rank ahead of sequels without mutating provider results',()=>{
+  const items=[{id:'sequel',aliases:['Naruto: Shippuden','ナルト 疾風伝']},{id:'original',aliases:['Naruto','ナルト','火影忍者','나루토']},{id:'other',aliases:['Boruto: Naruto Next Generations']}];
+  for(const query of ['Naruto','ＮＡＲＵＴＯ','Наруто','ナルト','火影忍者','나루토'])assert.equal(rankCatalog(items,query)[0].id,'original',query);
+  assert.equal(items[0].id,'sequel');assert.equal(alternateSpelling('Наруто'),'naruto');assert.equal(alternateSpelling('ナルト'),'');
+});
+
+test('Cyrillic search retries one alternate spelling only after an empty response',async()=>{
+  const queries=[],fetcher=async url=>{
+    const query=new URL(url).searchParams.get('filter[text]');queries.push(query);
+    return {ok:true,json:async()=>({data:query==='naruto'?[{id:'20',attributes:{canonicalTitle:'Naruto'}}]:[]})};
+  };
+  const items=await fetchCatalog('kitsu',{query:'Наруто',kind:'anime'},fetcher);
+  assert.deepEqual(queries,['Наруто','naruto']);assert.equal(items[0].searchSpelling,'naruto');
+  assert.equal(items[0].title,'Naruto');assert.ok(!items[0].aliases.includes('Наруто'),'Do not invent a translated alias');
+  const found=[];
+  await fetchCatalog('kitsu',{query:'Наруто'},async url=>{found.push(url);return {ok:true,json:async()=>({data:[{id:'20',attributes:{canonicalTitle:'Наруто'}}]})};});
+  assert.equal(found.length,1,'No extra request when the original query matched');
+});
+
+test('cancelled searches do not start either an original or alternate request',async()=>{
+  const abort=new AbortController();abort.abort();let calls=0;
+  await assert.rejects(fetchCatalog('kitsu',{query:'Наруто',signal:abort.signal},async()=>{calls++;}),{name:'AbortError'});
+  assert.equal(calls,0);
+  const during=new AbortController();
+  await assert.rejects(fetchCatalog('kitsu',{query:'Наруто',signal:during.signal},async()=>{
+    calls++;during.abort();return {ok:true,json:async()=>({data:[]})};
+  }),{name:'AbortError'});
+  assert.equal(calls,1);
 });

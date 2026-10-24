@@ -75,6 +75,9 @@ async function run(){
     await noOverflow('Catalogue filters');
     await page.locator('#catalogSearch').fill('Наруто');
     await page.getByRole('option').first().waitFor();
+    const popup=await page.locator('#catalogPredictions').boundingBox();
+    const navBox=await page.locator('.bottom-nav').boundingBox();
+    assert.ok(popup.y>=0&&popup.y+popup.height<=860-(navBox?.height||0),'Autocomplete stays inside the visible area at '+width+'px');
     await page.locator('#catalogSearch').press('ArrowDown');
     await page.locator('#catalogSearch').press('Enter');
     await page.getByRole('heading',{name:'Naruto',exact:true}).waitFor();
@@ -83,6 +86,7 @@ async function run(){
     await page.getByRole('button',{name:'К результатам поиска'}).click();
     await noOverflow('Server import');
     await page.screenshot({path:path.join(output,'import-'+width+'.png'),fullPage:true});
+    if(width===390)await require('./catalog-browser.cjs')(page);
     await page.locator('#profileBtn').click();
     await page.getByRole('heading',{name:'Мой профиль',exact:true}).waitFor();
     assert.equal(await page.locator('#loginBtn').isVisible(),true);
