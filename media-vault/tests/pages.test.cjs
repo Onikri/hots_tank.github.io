@@ -64,7 +64,7 @@ async function main(){
     await page.getByText("Результаты поиска").waitFor();
     await page.locator(".yummy-panel input").first().fill("https://ru.yummyani.me/catalog/item/blich");
     await page.locator(".yummy-manual summary").click();
-    await page.locator(".yummy-manual textarea").nth(1).fill("Количество серий\\n366\\nОзвучка\\n366 / 366");
+    await page.locator(".yummy-manual textarea").nth(1).fill(["Количество серий","366","Озвучка","366 / 366"].join(String.fromCharCode(10)));
     await page.locator(".yummy-manual button").click();
     await page.getByText("Опубликовано 366 из 366 серий").waitFor();
     await page.goto(base+"#/upload",{waitUntil:"domcontentloaded"});
