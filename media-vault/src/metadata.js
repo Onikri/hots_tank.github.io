@@ -25,7 +25,7 @@ export function imageCandidates(item){
     try{const u=new URL(x);return u.protocol==="https:"&&
       (u.hostname==="cdn.myanimelist.net"||u.hostname.endsWith(".myanimelist.net")||
        u.hostname==="shikimori.one"||u.hostname.endsWith(".shikimori.one")||
-       u.hostname==="desu.shikimori.one"||u.hostname==="poster.cdnvideohub.com"));}catch{return false;}
+       u.hostname==="desu.shikimori.one"||u.hostname==="poster.cdnvideohub.com");}catch{return false;}
   }))];
 }
 export async function localizeCards(cards,{signal}={}){
