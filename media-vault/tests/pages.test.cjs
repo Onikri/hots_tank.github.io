@@ -34,7 +34,7 @@ async function main(){
     const context=await browser.newContext({viewport:{width,height:850},serviceWorkers:"block",reducedMotion:"reduce"});
     await context.route("https://accounts.google.com/**",r=>r.fulfill({status:200,contentType:"text/javascript",body:"window.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}};"}));
     await context.route("https://cdn.jsdelivr.net/**",r=>r.fulfill({status:200,contentType:"text/javascript",body:""}));
-    await context.route("https://shikimori.one/**",r=>r.fulfill({status:200,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({data:{animes:[{malId:5114,russian:"Стальной алхимик: Братство",poster:{mainUrl:""}}]}})}));
+    await context.route("https://shikimori.one/**",r=>r.fulfill({status:200,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify([{id:5114,russian:"Стальной алхимик: Братство",image:{original:""}}])}));
     await context.route("https://api.jikan.moe/**",r=>{
       const u=new URL(r.request().url());
       let payload;

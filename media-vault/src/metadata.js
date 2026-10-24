@@ -30,24 +30,23 @@ export async function localizeCards(cards,{signal}={}){
   const ids=original.map(c=>c.id).filter(id=>Number.isInteger(id)&&id>0);
   if(!ids.length)return original;
   try{
-    const query='query ($ids: String) { animes(ids: $ids, limit: 50) { malId russian description poster { mainUrl originalUrl } } }';
-    const response=await fetch(SHIKI,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},
-      body:JSON.stringify({query,variables:{ids:ids.join(",")}}),
-      signal:signal&&typeof AbortSignal.any==="function"?
-        AbortSignal.any([signal,AbortSignal.timeout(4500)]):
-        (typeof AbortSignal.timeout==="function"?AbortSignal.timeout(4500):signal)});
+    const response=await fetch("https://shikimori.one/api/animes?ids="+ids.join(",")+"&limit=50",
+      {headers:{Accept:"application/json"},
+        signal:signal&&typeof AbortSignal.any==="function"?
+          AbortSignal.any([signal,AbortSignal.timeout(4500)]):
+          (typeof AbortSignal.timeout==="function"?AbortSignal.timeout(4500):signal)});
     if(!response.ok)throw Error("Shikimori "+response.status);
     const data=await response.json();
-    const byId=new Map((data?.data?.animes||[]).map(x=>[Number(x.malId),x]));
+    const byId=new Map((Array.isArray(data)?data:[]).map(x=>[Number(x.id),x]));
     return original.map(c=>{
       const ru=byId.get(c.id);
       if(!ru)return c;
-      const poster=ru.poster?.mainUrl||ru.poster?.originalUrl||"";
+      const poster=ru.image?.original||ru.image?.preview||"";
       let normalized="";
       try{const url=new URL(poster,"https://shikimori.one");if(url.protocol==="https:"&&
          (url.hostname==="shikimori.one"||url.hostname.endsWith(".shikimori.one")))normalized=url.href;}catch{}
       return {...c,title:cyrillic(ru.russian)?ru.russian:c.title,
-        description:cyrillic(ru.description)?ru.description:c.description,
+        description:c.description,
         shikiImage:normalized};
     });
   }catch(error){if(error?.name==="AbortError")throw error;return original;}
