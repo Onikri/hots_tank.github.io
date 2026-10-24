@@ -5,6 +5,35 @@ job; the VM parses public sources, downloads/remuxes one episode at a time,
 encrypts it and uploads to the owner's Drive. Closing the website does not stop
 the accepted task. No media is transferred through the owner's device or a Worker.
 
+## Free account access
+
+Use Oracle's own Console and Cloud Shell. Paid browser automation and third-party
+wallets are not part of this deployment. Cloud Shell is free within its tenancy
+monthly limits and its OCI CLI is already authenticated:
+https://docs.oracle.com/en-us/iaas/Content/API/Concepts/devcloudshellintro.htm
+
+Run `python3 check-account.py` in Cloud Shell before provisioning. It uses the
+existing active CLI profile, identifies the home region and lists indexed
+instances and volumes across accessible compartments. It does not create API
+keys, resources, billing settings or IAM policies, and never prints credentials.
+The output can be shared to select the VM configuration. Resource Search is an
+inventory snapshot; free eligibility and the account's current allowances must
+still be checked before creating a VM. A failed query stops the check rather
+than treating an unknown allocation as zero.
+
+If the owner wants the assistant to perform the deployment directly without a
+paid browser, `connect-account.py` can register an assistant-generated **public**
+RSA API key. This is a separate access-granting operation: it requires both
+`--public-key-der <base64-DER>` and the explicit `--grant-temporary-access` flag.
+Run it only from the owner's authenticated Cloud Shell after reviewing it. The
+matching private key stays in the assistant's protected execution workspace and
+is never published or passed through chat. The returned tenancy/user/region/
+fingerprint are public selectors, not credentials. Existing keys are preserved;
+a repeated call reuses only the same fingerprint. No VM, storage, IAM policy or
+paid subscription is created by the helper. The key grants the signed-in user's
+OCI permissions and must be revoked after setup; the output includes the exact
+revocation command. OCI API keys do not expire automatically.
+
 ## Cost and account checks before applying Terraform
 
 Do not change the account to Pay As You Go as part of deployment. The template
