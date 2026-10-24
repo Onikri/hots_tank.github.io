@@ -97,3 +97,17 @@
 .yummy-source p{font-size:12px;color:var(--muted)}
 .yummy-source ol{padding-left:25px}.yummy-source li{font-size:12px;margin:7px 0}.yummy-source li a{margin-left:10px;color:var(--sky);display:inline-flex;gap:4px}
 @media(max-width:750px){.yummy-panel{padding:15px}.yummy-form{grid-template-columns:1fr}.yummy-form button{width:100%}}
+
+.yummy-form-simple{grid-template-columns:minmax(0,1fr) auto;align-items:end}
+.yummy-form-simple button{grid-column:auto;min-height:45px}
+.yummy-direct{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}
+.yummy-direct .quiet-button{display:inline-flex;align-items:center;gap:7px}
+.yummy-embed{overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:10px;margin:15px 0}
+.yummy-embed iframe{display:block;width:100%;height:min(70vh,640px);border:0;border-radius:7px;background:#111}
+.yummy-manual{border-top:1px solid var(--line);margin-top:15px;padding-top:15px}
+.yummy-manual summary{display:flex;align-items:center;gap:9px;cursor:pointer;color:var(--sky);font-size:13px;font-weight:650;list-style:none}
+.yummy-manual summary::-webkit-details-marker{display:none}
+.yummy-manual label{display:flex;flex-direction:column;gap:7px;margin:11px 0;color:var(--muted);font-size:12px}
+.yummy-manual textarea{display:block;width:100%;min-width:0;resize:vertical;border:1px solid var(--line);background:var(--bg);border-radius:9px;color:var(--ink);padding:11px;line-height:1.5}
+.yummy-manual textarea:focus{outline:2px solid var(--orange)}
+@media(max-width:740px){.yummy-form-simple{grid-template-columns:minmax(0,1fr)}.yummy-form-simple button{width:100%}.yummy-embed iframe{height:55vh}}

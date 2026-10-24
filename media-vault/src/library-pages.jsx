@@ -208,7 +208,7 @@ export function LibraryPages({route,navigate,hasCatalog,isAdmin,signedIn,driveCo
      <input id="importValue" value={importInput} onChange={e=>setImportInput(e.target.value)} placeholder="Например, Frieren или ссылка с AnimeLIB" required/>
      <button className="solid-button" disabled={lookupBusy} type="submit"><Search size={18}/>{lookupBusy?"Ищем…":"Найти карточку"}</button>
    </form>
-   <p className="directory-hint">Из сторонней ссылки берётся только название для поиска. Обложка, русское название и описание берутся из Shikimori/Jikan, а доступные для просмотра серии можно отдельно искать в AniLibria. YummyAnime требует собственный API-токен X-Application; без него видео с YummyAnime автоматически не извлекаются.</p>
+   <p className="directory-hint">Из сторонней ссылки берётся только название для поиска. Обложка, русское название и описание берутся из Shikimori/Jikan, а доступные для просмотра серии можно отдельно искать в AniLibria. Для YummyAnime используй режим без API: публичный HTML, оригинальный плеер или прямую ссылку. Из GitHub Pages некоторые страницы недоступны для чтения из-за CORS.</p>
    <YummyPanel initialUrl={source?.sourceName==="YummyAnime"?source.sourceUrl:""}/>
    {lookupError&&<div className="directory-notice" role="alert">{lookupError}</div>}
    {!!matches.length&&<><h2 className="directory-subheading">Результаты поиска · {matches.length}</h2><div className="directory-grid">{matches.map(x=><MediaCard key={x.id} item={x} onClick={()=>choose(x)}/>)}</div></>}
