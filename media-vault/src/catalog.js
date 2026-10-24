@@ -137,6 +137,16 @@ export async function fetchCatalog(provider,options,fetcher=fetch){
       return (await fetchCatalog(provider,{...options,query:alternate,spellingFallback:true},fetcher)).map(item=>({...item,searchSpelling:alternate}));
     }
     return items;
+  }catch(error){
+    signal?.throwIfAborted();
+    // Free metadata hosts can be reachable from a browser while rejecting a
+    // datacentre IP (or vice versa). IMDb needs the relay because it lacks CORS.
+    // This fallback never handles source pages, playlists or media bytes.
+    if(options.server&&provider!=='imdb'){
+      clearTimeout(timeout);
+      return await fetchCatalog(provider,{...options,server:''},fetcher);
+    }
+    throw error;
   }finally{clearTimeout(timeout);signal?.removeEventListener('abort',stop);}
 }
 export function catalogProviders(kind,query,server){

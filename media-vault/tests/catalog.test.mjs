@@ -54,3 +54,17 @@ test('cancelled searches do not start either an original or alternate request',a
   }),{name:'AbortError'});
   assert.equal(calls,1);
 });
+
+test('free metadata can fall back from an unavailable relay without forwarding credentials',async()=>{
+  const calls=[];
+  const result=await fetchCatalog('kitsu',{query:'Naruto',kind:'anime',server:'https://import.example.com'},async(url,options)=>{
+    calls.push({url,options});
+    return url.startsWith('https://import.example.com')?{ok:false,status:503}:{ok:true,json:async()=>({data:[{id:'20',attributes:{canonicalTitle:'Naruto'}}]})};
+  });
+  assert.equal(result[0].title,'Naruto');assert.equal(calls.length,2);
+  assert.equal(new URL(calls[1].url).hostname,'kitsu.io');
+  assert.ok(calls.every(call=>!call.options.headers?.Authorization));
+  let attempts=0;
+  await assert.rejects(fetchCatalog('imdb',{query:'Matrix',kind:'movie',server:'https://import.example.com'},async()=>{attempts++;return {ok:false,status:503};}));
+  assert.equal(attempts,1,'A provider without direct CORS support remains on the server');
+});
