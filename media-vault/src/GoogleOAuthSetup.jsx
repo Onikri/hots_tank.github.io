@@ -24,11 +24,11 @@ export default function GoogleOAuthSetup({service}){
     <h3>Подключи фоновый импорт один раз</h3>
     <p>В <a href="https://console.cloud.google.com/auth/clients?project=262576202069" target="_blank" rel="noopener noreferrer">Google Cloud</a> открой OAuth-клиент MediaVault и добавь этот адрес в «Authorized redirect URIs»:</p>
     <div className="oauth-redirect"><code>{redirect}</code><button type="button" className="icon-button" aria-label="Скопировать адрес возврата Google" onClick={async()=>{try{await navigator.clipboard.writeText(redirect);setCopied(true);}catch{setError('Скопируй адрес возврата из строки выше.');}}}><Icon name={copied?'check':'copy'} size={16}/></button></div>
-    <p>Сохрани изменения, скачай JSON этого клиента и выбери его здесь. Настройки передаются только твоему серверу через HTTPS и хранятся там зашифрованными.</p>
-    <label className="input-label" htmlFor="googleOAuthFile">JSON OAuth-клиента Google</label>
-    <input id="googleOAuthFile" className="field-input" type="file" accept=".json,application/json" onChange={readFile} disabled={busy}/>
-    {filename&&<p className="fine">Выбран файл: {filename}</p>}
-    <details><summary>Ввести Client Secret вручную</summary><label className="input-label" htmlFor="googleOAuthSecret">Client Secret этого же OAuth-клиента</label><input id="googleOAuthSecret" className="field-input" type="password" autoComplete="off" value={secret} onChange={event=>{setSecret(event.target.value);setFilename('');}} placeholder="Из настроек клиента Google Cloud"/></details>
+    <p>Сохрани адрес. В правой панели этого же клиента открой <strong>Client secrets → Add Secret</strong>. Google покажет новый секрет один раз — скопируй его в поле ниже. Старый секрет оставь включённым до завершения подключения.</p>
+    <label className="input-label" htmlFor="googleOAuthSecret">Client Secret из Google Cloud</label>
+    <input id="googleOAuthSecret" className="field-input" type="password" autoComplete="off" value={secret} onChange={event=>{setSecret(event.target.value);setFilename('');}} placeholder="Вставь новый Client Secret" disabled={busy}/>
+    <p className="fine">Настройки передаются только твоему серверу через HTTPS и хранятся там зашифрованными.</p>
+    <details><summary>У меня сохранён JSON OAuth-клиента</summary><label className="input-label" htmlFor="googleOAuthFile">JSON OAuth-клиента Google</label><input id="googleOAuthFile" className="field-input" type="file" accept=".json,application/json" onChange={readFile} disabled={busy}/>{filename&&<p className="fine">Выбран файл: {filename}</p>}<p className="fine">Подойдёт файл, сохранённый при создании секрета. Google не позволяет скачать существующий секрет повторно.</p></details>
     {error&&<p className="inline-error" role="alert">{error}</p>}
     <button className="btn btn-primary" disabled={busy||secret.trim().length<20}><Icon name="lock" size={16}/>{busy?'Сохраняем…':'Сохранить настройки Google'}</button>
     <p className="fine">Затем нажми «Разрешить серверу доступ к Drive» и выбери roma.shevchenko2020@gmail.com.</p>

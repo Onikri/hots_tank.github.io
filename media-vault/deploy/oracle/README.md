@@ -79,9 +79,12 @@ web Client ID and its Client Secret. The secret is used only by the VM to finish
 Google's offline authorization flow; it never goes into GitHub or the public
 website configuration. Alternatively, leave the secret empty, start the service
 and sign in as the verified owner on the website. Under Import → Import server,
-add the shown redirect URI in Google Cloud, then select the Web OAuth client's
-JSON file in the private configuration form. The browser reads that file locally
-and sends only the matching client ID and secret to the owner's HTTPS server.
+add the shown redirect URI in Google Cloud, then use Client secrets → Add Secret
+in the client's right panel. Google shows the new secret only at creation time;
+copy it into the private Client Secret field on the website. An OAuth JSON file
+saved at creation time can also be selected; an existing secret cannot be
+viewed or downloaded again. The browser sends only the matching client ID and
+secret to the owner's HTTPS server.
 The server stores the secret encrypted with its private service key; responses,
 logs, browser storage and GitHub never receive it. Owner authentication and the
 existing origin checks are required for saving this configuration. Metadata
