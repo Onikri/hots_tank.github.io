@@ -22,12 +22,15 @@ export function validateEpisodeSelection(value){
 }
 
 // This payload is intentionally an allowlist. No OAuth token, key or phrase is exported.
-export function buildServerJob({libraryId,urls,collection='',episodes='all',quality='720'}){
+export function buildServerJob({libraryId,urls,collection='',episodes='all',quality='720',season=1}){
   if(!/^[\w-]{5,256}$/.test(String(libraryId||'')))throw Error('Сначала открой библиотеку, чтобы получить её ID.');
   const sources=[...new Set(String(urls||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(publicSourceUrl))];
   if(!sources.length)throw Error('Добавь ссылку на страницу сезона, серию или видео.');
   if(sources.length>200)throw Error('В одном задании можно указать до 200 ссылок.');
   if(!['best','1080','720','480','360'].includes(String(quality)))throw Error('Выбери качество из списка.');
-  return {version:1,library_id:String(libraryId),sources,collection:String(collection).trim().slice(0,180),
+  const title=String(collection).trim().slice(0,180);
+  if(!title)throw Error('Укажи название аниме — для него создаётся отдельная папка.');
+  if(!Number.isInteger(Number(season))||Number(season)<1||Number(season)>1000)throw Error('Укажи номер сезона от 1 до 1000.');
+  return {version:1,library_id:String(libraryId),sources,collection:title,season:Number(season),
     episodes:validateEpisodeSelection(episodes),quality:String(quality),resume:true};
 }

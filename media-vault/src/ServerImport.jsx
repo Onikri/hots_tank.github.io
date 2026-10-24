@@ -9,6 +9,7 @@ export default function ServerImport({state,onConnect,onRefresh}){
   const [mode,setMode]=useState('single');
   const [urls,setUrls]=useState('');
   const [collection,setCollection]=useState('');
+  const [season,setSeason]=useState('1');
   const [episodes,setEpisodes]=useState('all');
   const [quality,setQuality]=useState('720');
   const [job,setJob]=useState(null),[open,setOpen]=useState(false);
@@ -19,7 +20,7 @@ export default function ServerImport({state,onConnect,onRefresh}){
   function prepare(event){
     event.preventDefault();setError('');setCopied(false);
     if(!ready){setError('Открой библиотеку владельца перед импортом.');return;}
-    try{setJob(buildServerJob({libraryId:state.libraryId,urls,collection,episodes,quality}));setOpen(true);}
+    try{setJob(buildServerJob({libraryId:state.libraryId,urls,collection,episodes,quality,season}));setOpen(true);}
     catch(cause){setError(cause.message);}
   }
   async function copy(){
@@ -43,7 +44,8 @@ export default function ServerImport({state,onConnect,onRefresh}){
           <p className="fine">Парсер прочитает публичную страницу и доступный плеер. Прямые MP4 и HLS-ссылки тоже поддерживаются.</p>
         </div>
       </Tabs.Root>
-      <div className="form-field"><label className="input-label" htmlFor="serverCollection">Коллекция / название аниме</label><input id="serverCollection" className="field-input" value={collection} onChange={event=>setCollection(event.target.value)} placeholder="Например, Моя коллекция · сезон 1" autoComplete="off"/></div>
+      <div className="form-field"><label className="input-label" htmlFor="serverCollection">Название аниме</label><input id="serverCollection" className="field-input" value={collection} onChange={event=>setCollection(event.target.value)} placeholder="Например, Наруто — без номера сезона" required autoComplete="off"/></div>
+      <div className="form-field"><label className="input-label" htmlFor="serverSeason">Сезон</label><input id="serverSeason" className="field-input" type="number" min="1" max="1000" required value={season} onChange={event=>setSeason(event.target.value)}/><p className="fine">Папка: Аниме → {collection||'Название аниме'} → Сезон {season||'…'} → серии. Повторный импорт использует ту же папку тайтла.</p></div>
       <div className="import-field-grid"><div className="form-field"><label className="input-label" htmlFor="serverEpisodes">Серии</label><input id="serverEpisodes" className="field-input" value={episodes} onChange={event=>setEpisodes(event.target.value)} placeholder="all или 1-12" autoComplete="off"/></div><div className="form-field"><label className="input-label" htmlFor="serverQuality">Предпочитаемое качество</label><select id="serverQuality" className="field-input" value={quality} onChange={event=>setQuality(event.target.value)}><option value="best">Лучшее доступное</option><option value="1080">До 1080p</option><option value="720">До 720p</option><option value="480">До 480p</option><option value="360">До 360p</option></select></div></div>
       <p className="fine">Качество и серии выбираются из того, что действительно найдено на странице.</p>
       {error&&<p className="inline-error" role="alert">{error}</p>}

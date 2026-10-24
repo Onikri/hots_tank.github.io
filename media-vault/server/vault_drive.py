@@ -21,6 +21,7 @@ import os
 import random
 import time
 import uuid
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -34,6 +35,22 @@ ADMIN_EMAIL_SHA256 = "4aeabbd305272323d256ba5fff0d7783536729bda8b1b06befeb0cea19
 FOLDER_MIME = "application/vnd.google-apps.folder"
 BINARY_MIME = "application/octet-stream"
 CATEGORIES = {"video", "audio", "book", "manga", "image"}
+SECTION_LABELS = {"anime": "Аниме", "manga": "Манга", "ranobe": "Ранобэ", "book": "Книги", "music": "Музыка", "video": "Видео", "image": "Фото"}
+SECTION_FORMAT = {"anime": "video", "manga": "manga", "ranobe": "book", "book": "book", "music": "audio", "video": "video", "image": "image"}
+DEFAULT_SECTION = {"video": "video", "audio": "music", "book": "book", "manga": "manga", "image": "image"}
+
+
+def normalized_name(value):
+    return " ".join(unicodedata.normalize("NFKC", str(value or "")).split())
+
+
+def group_section(group, catalog):
+    if group.get("section") in SECTION_LABELS:
+        return group["section"]
+    member = next((item for item in catalog.get("items", []) if item.get("collectionId") == group.get("id")), group)
+    if member.get("category") == "video" and member.get("importFingerprint"):
+        return "anime"
+    return DEFAULT_SECTION.get(member.get("category"), "book")
 
 
 class VaultError(RuntimeError):
@@ -329,14 +346,25 @@ class VaultDrive:
         merged = copy.deepcopy(latest)
         merged["items"].append(copy.deepcopy(item))
         target = merged.setdefault("storage", {})
-        target["version"] = 1
+        target["version"] = 2
         media = target.setdefault("mediaFolders", {})
         for category, folder_id in storage.get("mediaFolders", {}).items():
             media.setdefault(category, folder_id)
+        sections = target.setdefault("sectionFolders", {})
+        for section, folder_id in storage.get("sectionFolders", {}).items():
+            sections.setdefault(section, folder_id)
         collections = target.setdefault("collections", [])
-        known = {entry.get("id") for entry in collections}
-        collections.extend(copy.deepcopy(entry) for entry in storage.get("collections", [])
-                           if entry.get("id") not in known)
+        known = {entry.get("id"): entry for entry in collections}
+        for incoming in storage.get("collections", []):
+            existing = known.get(incoming.get("id"))
+            if existing is None:
+                collections.append(copy.deepcopy(incoming))
+            else:
+                if incoming.get("section"):
+                    existing.setdefault("section", incoming["section"])
+                parts = existing.setdefault("parts", [])
+                part_ids = {part["id"] for part in parts}
+                parts.extend(copy.deepcopy(part) for part in incoming.get("parts", []) if part["id"] not in part_ids)
         return merged
 
     def _commit_item(self, item, storage):
@@ -368,23 +396,35 @@ class VaultDrive:
                 return next(entry for entry in verified["items"] if entry.get("id") == item["id"])
         raise ConcurrentUpdateError("Catalog is busy. The encrypted asset manifest permits recovery.")
 
-    def _folders(self, catalog, category, collection):
+    def _folders(self, catalog, category, collection, section, part):
         storage = copy.deepcopy(catalog.get("storage") or {})
-        storage["version"] = 1
+        storage["version"] = 2
         media = storage.setdefault("mediaFolders", {})
-        if category not in media:
-            media[category] = self._new_folder(category, catalog["folderId"])
+        sections = storage.setdefault("sectionFolders", {})
+        if section not in sections:
+            sections[section] = self._new_folder(SECTION_LABELS[section], catalog["folderId"])
+        if section not in {"anime", "ranobe"}:
+            media.setdefault(category, sections[section])
         collections = storage.setdefault("collections", [])
-        group = next((entry for entry in collections if entry.get("category") == category
-                      and entry.get("name") == collection), None)
+        group = next((entry for entry in collections if group_section(entry, catalog) == section
+                      and normalized_name(entry.get("name")).casefold() == collection.casefold()), None)
         if group is None:
             collection_id = str(uuid.uuid4())
-            group = {"id": collection_id, "category": category, "name": collection,
-                     "folderId": self._new_folder("collection-" + collection_id, media[category])}
+            group = {"id": collection_id, "category": SECTION_FORMAT[section], "section": section, "name": collection, "parts": [],
+                     "folderId": self._new_folder("collection-" + collection_id, sections[section])}
             collections.append(group)
+        parent, selected_part = group["folderId"], None
+        if part:
+            parts = group.setdefault("parts", [])
+            selected_part = next((entry for entry in parts if normalized_name(entry["name"]).casefold() == part.casefold()), None)
+            if selected_part is None:
+                part_id = str(uuid.uuid4())
+                selected_part = {"id": part_id, "name": part, "folderId": self._new_folder("part-" + part_id, parent)}
+                parts.append(selected_part)
+            parent = selected_part["folderId"]
         item_id = str(uuid.uuid4())
-        asset_id = self._new_folder("asset-" + item_id, group["folderId"])
-        return item_id, asset_id, group["id"], storage
+        asset_id = self._new_folder("asset-" + item_id, parent)
+        return item_id, asset_id, group["id"], storage, selected_part
 
     def _checkpoints(self):
         if self._manifest_cache is not None:
@@ -393,14 +433,18 @@ class VaultDrive:
         checkpoints = []
         media = self._retry(lambda: self.drive.list_children(catalog["folderId"], mime_type=FOLDER_MIME))
         for media_folder in media:
-            if media_folder.get("name") not in CATEGORIES:
+            if media_folder.get("name") not in CATEGORIES | set(SECTION_LABELS.values()):
                 continue
             groups = self._retry(lambda: self.drive.list_children(media_folder["id"], mime_type=FOLDER_MIME))
             for group in groups:
                 if not group.get("name", "").startswith("collection-"):
                     continue
                 assets = self._retry(lambda: self.drive.list_children(group["id"], mime_type=FOLDER_MIME))
-                for asset in assets:
+                direct = [entry for entry in assets if entry.get("name", "").startswith("asset-")]
+                for part in assets:
+                    if part.get("name", "").startswith("part-"):
+                        direct.extend(self._retry(lambda: self.drive.list_children(part["id"], mime_type=FOLDER_MIME)))
+                for asset in direct:
                     if not asset.get("name", "").startswith("asset-"):
                         continue
                     manifests = self._retry(lambda: self.drive.list_children(asset["id"], name="manifest.enc.json"))
@@ -428,12 +472,16 @@ class VaultDrive:
         return None
 
     def upload_file(self, path, *, name=None, category="video", collection="Без коллекции",
-                    episode=None, source_identity=None, mime=None, metadata_id=None, progress=None):
+                    episode=None, source_identity=None, mime=None, metadata_id=None, progress=None,
+                    section=None, part="", season=None):
         if category not in CATEGORIES:
             raise VaultError("Unsupported media category.")
         file_path = Path(path)
-        filename, collection = str(name or file_path.name).strip(), str(collection).strip()
-        if not filename or len(filename) > 500 or not collection or len(collection) > 500:
+        filename, collection = str(name or file_path.name).strip(), normalized_name(collection)
+        section, part = section or DEFAULT_SECTION[category], normalized_name(part)
+        if section not in SECTION_FORMAT or (category != SECTION_FORMAT[section] and category != "image"):
+            raise VaultError("Invalid library section for this file format.")
+        if not filename or len(filename) > 500 or not collection or len(collection) > 500 or len(part) > 500:
             raise VaultError("Invalid file or collection name.")
         size = file_path.stat().st_size
         if size <= 0:
@@ -443,7 +491,7 @@ class VaultDrive:
             if existing:
                 return existing
         catalog, _ = self._latest()
-        item_id, asset_id, collection_id, storage = self._folders(catalog, category, collection)
+        item_id, asset_id, collection_id, storage, selected_part = self._folders(catalog, category, collection, section, part)
         checkpoint_written = False
         try:
             chunks, loaded, content_hash = [], 0, hashlib.sha256()
@@ -462,9 +510,14 @@ class VaultDrive:
             if loaded != size or file_path.stat().st_size != size:
                 raise VaultError("Source file changed while uploading.")
             item = {"id": item_id, "folderId": asset_id, "name": filename, "category": category,
+                    "section": section,
                     "mime": mime or mimetypes.guess_type(filename)[0] or "application/octet-stream",
                     "size": loaded, "addedAt": _now(), "collectionId": collection_id, "chunks": chunks,
                     "sha256": content_hash.hexdigest()}
+            if selected_part:
+                item.update({"partId": selected_part["id"], "partName": selected_part["name"]})
+            if season is not None:
+                item["season"] = season
             if episode is not None:
                 item["episode"] = episode
             if metadata_id is not None:

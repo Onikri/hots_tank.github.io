@@ -31,7 +31,7 @@ def validate_job(value):
     if not isinstance(value, dict) or value.get("version") != 1:
         raise SourceError("Нужно задание MediaVault версии 1.")
     # Reject accidental pasted credentials rather than saving or forwarding them.
-    if set(value) - {"version", "library_id", "sources", "collection", "episodes", "quality", "resume"}:
+    if set(value) - {"version", "library_id", "sources", "collection", "episodes", "quality", "resume", "season"}:
         raise SourceError("В задании есть лишние поля. Скопируй новое задание с сайта.")
     library = value.get("library_id", "")
     if not isinstance(library, str) or not re.fullmatch(r"[\w-]{5,256}", library, flags=re.ASCII):
@@ -44,9 +44,14 @@ def validate_job(value):
     if quality not in {"best", "1080", "720", "480", "360"}:
         raise SourceError("Некорректное качество.")
     collection = str(value.get("collection", "")).strip()[:180]
+    season = value.get("season", 1)
+    if isinstance(season, bool) or not str(season).isdigit() or not 1 <= int(season) <= 1000:
+        raise SourceError("Укажи номер сезона от 1 до 1000.")
+    if len(sources) > 1 and not collection:
+        raise SourceError("Укажи общее название аниме для списка серий.")
     selected = episode_selection(value.get("episodes", "all"))
     return {"library_id": library, "sources": sources, "collection": collection,
-            "quality": quality, "selected": selected}
+            "quality": quality, "selected": selected, "season": int(season)}
 
 
 def source_identity(url):
@@ -114,9 +119,10 @@ def run_job(value, vault, *, resolver=None, downloader=download_episode, log=pri
             log("Некоторые указанные серии не опубликованы в найденных ссылках; они не будут выдуманы или загружены.")
         for index, entry in enumerate(plans, 1):
             number, collection = entry["number"], entry["collection"]
+            identity = entry["identity"] + (f":season={job['season']}" if job["season"] != 1 else "")
             label = f"Серия {number}" if number is not None else f"Видео {index}"
             # Check before contacting the player, because its signed links expire.
-            if vault.completed(entry["identity"], collection=collection, episode=number):
+            if vault.completed(identity, collection=collection, episode=number):
                 result["skipped"] += 1
                 log(f"[{index}/{len(plans)}] {label}: уже в Drive, пропускаю.")
                 continue
@@ -150,7 +156,8 @@ def run_job(value, vault, *, resolver=None, downloader=download_episode, log=pri
                 name = (f"{collection} — серия {number:03d}.mp4" if number is not None
                         else (page.title or entry["title"] or collection)[:220] + ".mp4")
                 vault.upload_file(path, name=name, category="video", collection=collection,
-                                  episode=number, source_identity=entry["identity"], mime="video/mp4", progress=progress)
+                                  episode=number, source_identity=identity, mime="video/mp4", progress=progress,
+                                  section="anime",part=f"Сезон {job['season']}",season=job["season"])
                 result["saved"] += 1
         log(f"Готово: сохранено {result['saved']}, уже были в Drive {result['skipped']}, недоступны {result['failed']}.")
         return result

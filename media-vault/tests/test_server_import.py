@@ -205,6 +205,12 @@ unavailable.m3u8
             self.assertEqual(len(http.calls), count, 'resume does not fetch any video again')
             self.assertEqual(resolver.resolves, 1)
             self.assertFalse(any(PHRASE in line for line in logs))
+            third = run_job({**job, 'season': 2}, vault, resolver=resolver, log=logs.append)
+            self.assertEqual(third, {'saved': 1, 'skipped': 0, 'failed': 0})
+            catalog = vault.refresh()
+            self.assertEqual(len(catalog['storage']['collections']), 1)
+            self.assertEqual([part['name'] for part in catalog['storage']['collections'][0]['parts']], ['Сезон 1', 'Сезон 2'])
+            self.assertEqual([item['season'] for item in catalog['items']], [1, 2])
         finally:
             vault.close()
 

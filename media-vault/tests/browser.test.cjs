@@ -141,6 +141,7 @@ async function main() {
   await owner.locator('#passphraseAgain').fill(PHRASE);
   await owner.locator('#createBtn').click();
   await owner.locator('#adminPanel').waitFor({state:'visible'});
+  await owner.locator('#showFilesBtn').click();
   const catalogId=await owner.evaluate(()=>localStorage.getItem('mediavault_library'));
   assert.ok(catalogId,'Catalog ID saved');
   assert.ok((await owner.evaluate(()=>window.__grants)).some(scope=>/\/auth\/drive(?:\s|$)/.test(scope)),'Creating the encrypted library obtains the owner write permission');
@@ -171,7 +172,7 @@ async function main() {
   await owner.locator('#serverEpisodes').fill('1-12');
   await owner.locator('#importVideoBtn').click();
   const serverJob=JSON.parse(await owner.locator('#serverJob').inputValue());
-  assert.deepEqual(serverJob,{version:1,library_id:catalogId,sources:['https://source.example.com/season'],collection:'Мой сезон',episodes:'1-12',quality:'720',resume:true});
+  assert.deepEqual(serverJob,{version:1,library_id:catalogId,sources:['https://source.example.com/season'],collection:'Мой сезон',season:1,episodes:'1-12',quality:'720',resume:true});
   assert.ok(!JSON.stringify(serverJob).includes(PHRASE));
   assert.ok(!JSON.stringify(serverJob).includes(OWNER));
   assert.ok((await owner.locator('#openColab').getAttribute('href')).includes('notebooks/MediaVault_Server_Import.ipynb'));
@@ -282,6 +283,7 @@ async function main() {
   assert.equal(await reader.locator('#createBtn').isVisible(),false);
   await reader.locator('#passphrase').fill(PHRASE);
   await reader.locator('#unlockBtn').click();
+  await reader.locator('#showFilesBtn').click();
   await reader.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
   assert.equal(await reader.locator('#adminPanel').isVisible(),false);
   assert.equal(await reader.locator('#uploadBtn').isVisible(),false);
@@ -317,6 +319,7 @@ async function main() {
   assert.equal(writes.length,writesBeforeDiscovery,'Login and discovery perform no Drive writes');
   await fresh.locator('#passphrase').fill(PHRASE);
   await fresh.locator('#unlockBtn').click();
+  await fresh.locator('#showFilesBtn').click();
   await fresh.waitForFunction(()=>document.querySelectorAll('.media-card').length===4);
   assert.equal(writes.length,writesBeforeDiscovery,'Opening a library does not need write access');
   assert.equal((await fresh.evaluate(()=>window.__grants)).length,1,'An existing library opens after a single Google sign-in');
@@ -342,6 +345,59 @@ async function main() {
   await blocked.locator('#unlockBtn').waitFor();
   assert.equal(await blocked.evaluate(()=>localStorage.getItem('mediavault_library')),catalogId);
   await blockedContext.close();
+  // Each anime gets one title card and one folder, containing its season folders.
+  await owner.locator('.upload-options > summary').click();
+  await owner.locator('#uploadSection').selectOption('anime');
+  await owner.locator('#uploadCollection').fill('Наруто');
+  await owner.locator('#uploadPart').fill('Сезон 1');
+  const videoBytes=await fs.readFile(mp4);
+  await owner.locator('#filesInput').setInputFiles([
+    {name:'01.mp4',mimeType:'video/mp4',buffer:videoBytes},
+    {name:'02.mp4',mimeType:'video/mp4',buffer:videoBytes}
+  ]);
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===7);
+  await owner.locator('#uploadPart').fill('Сезон 2');
+  await owner.locator('#filesInput').setInputFiles([{name:'01.mp4',mimeType:'video/mp4',buffer:videoBytes}]);
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===8);
+  await owner.locator('#uploadSection').selectOption('manga');
+  await owner.locator('#uploadPart').fill('Том 1');
+  await owner.locator('#filesInput').setInputFiles([{name:'страница-01.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a+kkAAAAASUVORK5CYII=','base64')}]);
+  await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===9);
+  await owner.locator('#showTitlesBtn').click();
+  assert.equal(await owner.locator('.title-card[data-title-name="Наруто"]').count(),2,'Same-named anime and manga have separate title cards');
+  await owner.getByRole('button',{name:'Аниме',exact:true}).click();
+  assert.equal(await owner.locator('.title-card').count(),1,'Three episodes appear as one anime title');
+  await owner.locator('.title-card').click();
+  assert.equal(await owner.locator('.title-part').count(),2,'Seasons appear inside the title');
+  assert.equal(await owner.locator('.title-part').filter({hasText:'Сезон 1'}).locator('.media-card').count(),2);
+  await owner.locator('.title-part').filter({hasText:'Сезон 1'}).locator('.media-card').first().click();
+  await owner.waitForFunction(()=>document.querySelector('#viewerContent video')?.readyState>=2);
+  await owner.locator('#closeViewer').click();
+  await owner.locator('#backToTitles').click();
+  await owner.getByRole('button',{name:'Манга',exact:true}).click();
+  assert.equal(await owner.locator('.title-card').count(),1);
+  await owner.locator('#searchInput').fill('Наруто');
+  assert.equal(await owner.locator('.title-card').count(),1,'Title search finds files even when filenames do not contain the title');
+  await owner.getByRole('button',{name:'Ранобэ',exact:true}).click();
+  await owner.locator('#uploadSection').selectOption('ranobe');
+  await owner.locator('#filesInput').setInputFiles([{name:'Том-01.txt',mimeType:'text/plain',buffer:Buffer.from('Light novel volume text')}]);
+  await owner.waitForFunction(()=>document.querySelector('#count').textContent==='10 файлов');
+  await owner.locator('.title-card').click();
+  await owner.locator('.title-part .media-card').click();
+  await owner.locator('#viewerContent pre').waitFor();
+  assert.equal(await owner.locator('#viewerContent pre').innerText(),'Light novel volume text','A light novel keeps the working book reader');
+  await owner.locator('#closeViewer').click();
+  await owner.locator('#backToTitles').click();
+  await fs.mkdir(path.join(PROJECT,'test-output'),{recursive:true});
+  await owner.locator('.upload-options > summary').click();
+  await owner.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
+  await owner.screenshot({path:path.join(PROJECT,'test-output','title-library-mobile.png'),fullPage:true});
+  const organized=await decryptCatalog(files.get(catalogId));
+  const animeTitle=organized.storage.collections.find(group=>group.name==='Наруто'&&group.section==='anime');
+  const mangaTitle=organized.storage.collections.find(group=>group.name==='Наруто'&&group.section==='manga');
+  const ranobeTitle=organized.storage.collections.find(group=>group.name==='Наруто'&&group.section==='ranobe');
+  assert.equal(animeTitle.parts.length,2);assert.notEqual(animeTitle.folderId,mangaTitle.folderId);assert.notEqual(mangaTitle.folderId,ranobeTitle.folderId);
+  assert.deepEqual(files.get(animeTitle.folderId).parents,[organized.storage.sectionFolders.anime]);
   console.log('PASS: React production build; mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; server job without video transfer or credential export; catalog refresh; mobile viewer/abort/Escape; MP4 stream/fallback/seek; search/category/name sort/favorites/history; phrase unlock; token reconnect; stopped worker recovery; reader scopes and UI without writes.');
   console.log('Screenshot: '+path.join(temp,'mobile-owner.png'));
   console.log('Live Google OAuth, real Drive ACL and physical Android/iOS playback remain outside this test.');

@@ -56,13 +56,13 @@ function namedFile(name,bytes,type="video/mp4",relativePath=""){
   if(relativePath)Object.defineProperty(file,"webkitRelativePath",{value:relativePath});
   return file;
 }
-test("empty collection field falls back to folder path or the default collection",async()=>{
+test("empty title field uses the root folder or the individual book name",async()=>{
   const f=await fixture();
   try{
     const first=await f.service.uploadFiles([namedFile('note.txt',Buffer.from('one'),'text/plain')],{collection:''});
     const second=await f.service.uploadFiles([namedFile('other.txt',Buffer.from('two'),'text/plain','Season/other.txt')],{collection:'   '});
     assert.equal(first[0].ok,true);assert.equal(second[0].ok,true);
-    assert.deepEqual(f.state.catalog.storage.collections.map(entry=>entry.name),['Без коллекции','Season']);
+    assert.deepEqual(f.state.catalog.storage.collections.map(entry=>entry.name),['note','Season']);
   }finally{f.restore();}
 });
 test("real AES-GCM upload makes bounded 4 MiB chunks and opaque Drive collections",async()=>{
@@ -80,17 +80,20 @@ test("real AES-GCM upload makes bounded 4 MiB chunks and opaque Drive collection
       restored.push(Buffer.from(await openChunk(f.remote.get(chunk.fileId),f.key,item.id,i,chunk.iv)));
     }
     assert.deepEqual(Buffer.concat(restored),bytes);
-    const [media,collection,asset]=f.folders;
-    assert.equal(media.name,"video");assert.deepEqual(media.parents,["vault-root"]);
+    const [media,collection,part,asset]=f.folders;
+    assert.equal(media.name,"Видео");assert.deepEqual(media.parents,["vault-root"]);
     assert.match(collection.name,/^collection-[0-9a-f-]{36}$/);assert.deepEqual(collection.parents,[media.id]);
-    assert.match(asset.name,/^asset-[0-9a-f-]{36}$/);assert.deepEqual(asset.parents,[collection.id]);
+    assert.match(part.name,/^part-[0-9a-f-]{36}$/);assert.deepEqual(part.parents,[collection.id]);
+    assert.match(asset.name,/^asset-[0-9a-f-]{36}$/);assert.deepEqual(asset.parents,[part.id]);
     assert.ok(f.parts.every(part=>/^part-\d{6}\.enc$/.test(part.name)&&part.parents[0]===asset.id));
     assert.ok(!JSON.stringify(f.folders).includes("Private"));
     assert.ok(!JSON.stringify(f.catalogWrites).includes("Private"));
     const opened=await openIndex(f.catalogWrites.at(-1),f.key);
     assert.equal(opened.items[0].name,"legacy.txt");assert.equal(opened.entries[0].id,52991);
     assert.equal(opened.custom.retained,true);
-    assert.equal(opened.storage.collections[0].name,"Private series/Season 1");
+    assert.equal(opened.storage.collections[0].name,"Private series");
+    assert.equal(opened.storage.collections[0].parts[0].name,"Season 1");
+    assert.equal(item.partId,opened.storage.collections[0].parts[0].id);
     assert.equal(item.sourcePath,"Private series/Season 1/Private episode.mp4");
     assert.equal(item.collectionId,opened.storage.collections[0].id);
     assert.equal(item.episode,3);assert.equal(item.metadataId,52991);
@@ -106,12 +109,35 @@ test("same collection reuses its folders; separate media categories have separat
   try{
     await f.service.uploadFiles([namedFile("one.mp4","one"),namedFile("two.mp4","two")],{collection:"Same series"});
     await f.service.uploadFiles([namedFile("song.mp3","music","audio/mpeg")],{collection:"Same series"});
-    assert.equal(f.folders.filter(folder=>folder.name==="video").length,1);
-    assert.equal(f.folders.filter(folder=>folder.name==="audio").length,1);
+    assert.equal(f.folders.filter(folder=>folder.name==="Видео").length,1);
+    assert.equal(f.folders.filter(folder=>folder.name==="Музыка").length,1);
     assert.equal(f.folders.filter(folder=>folder.name.startsWith("collection-")).length,2);
     assert.equal(f.state.catalog.items.length,4);
     assert.equal(f.state.catalog.items[1].collectionId,f.state.catalog.items[2].collectionId);
     assert.notEqual(f.state.catalog.items[1].collectionId,f.state.catalog.items[3].collectionId);
+  }finally{f.restore();}
+});
+test("one title has reusable season folders, while anime, manga, light novels, books and albums stay separate",async()=>{
+  const f=await fixture();
+  try{
+    const upload=async(name,type,options)=>{const result=await f.service.uploadFiles([namedFile(name,'encrypted fixture',type)],options);assert.equal(result[0].ok,true);return result[0].item;};
+    const first=await upload('01.mp4','video/mp4',{section:'anime',collection:'Наруто',part:'Сезон 1'});
+    const second=await upload('02.mp4','video/mp4',{section:'anime',collection:'Наруто',part:'Сезон 1'});
+    const next=await upload('01.mp4','video/mp4',{section:'anime',collection:'Наруто',part:'Сезон 2'});
+    const manga=await upload('chapter.cbz','application/vnd.comicbook+zip',{section:'manga',collection:'Наруто',part:'Том 1'});
+    const lightNovel=await upload('volume.txt','text/plain',{section:'ranobe',collection:'Одинаковое название'});
+    const book=await upload('book.txt','text/plain',{section:'book',collection:'Одинаковое название'});
+    await upload('track.mp3','audio/mpeg',{section:'music',collection:'Мой альбом'});
+    assert.equal(first.collectionId,second.collectionId);assert.equal(first.collectionId,next.collectionId);
+    assert.equal(first.partId,second.partId);assert.notEqual(first.partId,next.partId);
+    assert.notEqual(first.collectionId,manga.collectionId);assert.notEqual(lightNovel.collectionId,book.collectionId);
+    const catalog=f.state.catalog,group=catalog.storage.collections.find(entry=>entry.id===first.collectionId);
+    assert.deepEqual(group.parts.map(part=>part.name),['Сезон 1','Сезон 2']);
+    assert.deepEqual(f.folders.find(folder=>folder.id===group.folderId).parents,[catalog.storage.sectionFolders.anime]);
+    assert.deepEqual(f.folders.find(folder=>folder.id===first.folderId).parents,[group.parts[0].folderId]);
+    for(const label of ['Аниме','Манга','Ранобэ','Книги','Музыка'])assert.ok(f.folders.some(folder=>folder.name===label));
+    assert.ok(!JSON.stringify(f.folders).includes('Наруто'),'Title names remain in the encrypted catalog');
+    assert.equal(catalog.items[0].id,'old','Legacy files survive new hierarchical uploads');
   }finally{f.restore();}
 });
 test("failed catalog save publishes no phantom item, and unsupported files create no folders",async()=>{

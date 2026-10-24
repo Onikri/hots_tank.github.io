@@ -1,5 +1,6 @@
 import {CHUNK_SIZE,sealChunk,sealIndex,guessCategory,mimeFor} from "../crypto.js";
 import {createFolder,uploadSmall,replaceSmall} from "../drive.js";
+import {SECTION_LABELS,SECTION_FORMAT,sectionForCollection,uploadPlacement,sameName} from './library-model.js';
 
 const categories=["video","audio","manga","book","image"];
 function aborted(){return new DOMException("Загрузка отменена","AbortError");}
@@ -9,16 +10,13 @@ function describe(source,options={}){
   const category=options.category||guessCategory({name});
   if(!categories.includes(category))throw Error("Неподдерживаемый тип файла.");
   const sourcePath=String(options.sourcePath||source?.webkitRelativePath||"").slice(0,2048);
-  const parentPath=sourcePath.includes("/")?sourcePath.slice(0,sourcePath.lastIndexOf("/")):"";
   const requested=options.collection;
-  const explicitName=typeof requested==="string"?requested.trim():requested?.name||requested?.title;
-  const collectionName=String(explicitName||parentPath||"Без коллекции").trim();
-  if(!collectionName||collectionName.length>500)throw Error("Название коллекции должно содержать от 1 до 500 символов.");
+  const placement=uploadPlacement({name,category,sourcePath,section:options.section,collection:requested,part:options.part});
   const size=options.size??source?.size;
   if(size!=null&&(!Number.isSafeInteger(Number(size))||Number(size)<0))throw Error("Некорректный размер файла.");
   if(size!=null&&Number(size)===0)throw Error("Пустой файл не поддерживается.");
   return {name,category,mime:options.mime||mimeFor({name,type:source?.type||""},category),
-    size:size==null?null:Number(size),sourcePath,collectionName,
+    size:size==null?null:Number(size),sourcePath,...placement,
     collectionId:typeof requested==="object"?requested?.id:null,
     metadataId:options.metadataId??requested?.metadataId,
     episode:options.episode,signal:options.signal};
@@ -104,26 +102,38 @@ export function createUploadService({getSession,onCatalog,onProgress=()=>{},onAu
   }
   async function folders(draft,descriptor,context,signal){
     const old=draft.storage||{};
-    const storage=draft.storage={...old,version:1,mediaFolders:{...(old.mediaFolders||{})},
-      collections:Array.isArray(old.collections)?old.collections.map(entry=>({...entry})):[]};
-    let mediaFolder=storage.mediaFolders[descriptor.category];
+    const storage=draft.storage={...old,version:2,mediaFolders:{...(old.mediaFolders||{})},sectionFolders:{...(old.sectionFolders||{})},
+      collections:Array.isArray(old.collections)?old.collections.map(entry=>({...entry,parts:(entry.parts||[]).map(part=>({...part}))})):[]};
+    let mediaFolder=storage.sectionFolders[descriptor.section];
     if(!mediaFolder){
-      mediaFolder=(await createFolder(token(context,signal),descriptor.category,draft.folderId,{signal})).id;
-      storage.mediaFolders[descriptor.category]=mediaFolder;
+      mediaFolder=(await createFolder(token(context,signal),SECTION_LABELS[descriptor.section],draft.folderId,{signal})).id;
+      storage.sectionFolders[descriptor.section]=mediaFolder;
+      if(SECTION_FORMAT[descriptor.section]===descriptor.category&&descriptor.section!=='anime'&&descriptor.section!=='ranobe')storage.mediaFolders[descriptor.category]??=mediaFolder;
     }
-    let collection=storage.collections.find(entry=>entry.category===descriptor.category&&
-      (descriptor.collectionId?entry.id===descriptor.collectionId:entry.name===descriptor.collectionName));
+    let collection=storage.collections.find(entry=>sectionForCollection(entry,draft)===descriptor.section&&
+      (descriptor.collectionId?entry.id===descriptor.collectionId:sameName(entry.name,descriptor.collectionName)));
     if(!collection){
       const id=crypto.randomUUID();
       const folder=await createFolder(token(context,signal),"collection-"+id,mediaFolder,{signal});
-      collection={id,category:descriptor.category,name:descriptor.collectionName,folderId:folder.id};
+      collection={id,category:SECTION_FORMAT[descriptor.section],section:descriptor.section,name:descriptor.collectionName,folderId:folder.id,parts:[]};
       if(Number.isSafeInteger(Number(descriptor.metadataId))&&Number(descriptor.metadataId)>0)
         collection.metadataId=Number(descriptor.metadataId);
       storage.collections.push(collection);
     }
+    let parent=collection.folderId,part;
+    if(descriptor.partName){
+      collection.parts??=[];
+      part=collection.parts.find(entry=>sameName(entry.name,descriptor.partName));
+      if(!part){
+        const id=crypto.randomUUID();
+        part={id,name:descriptor.partName,folderId:(await createFolder(token(context,signal),'part-'+id,parent,{signal})).id};
+        collection.parts.push(part);
+      }
+      parent=part.folderId;
+    }
     const itemId=crypto.randomUUID();
-    const folder=await createFolder(token(context,signal),"asset-"+itemId,collection.folderId,{signal});
-    return {itemId,folderId:folder.id,collection};
+    const folder=await createFolder(token(context,signal),"asset-"+itemId,parent,{signal});
+    return {itemId,folderId:folder.id,collection,part};
   }
   async function commit(catalog,context,signal){
     assert(context,signal);
@@ -156,7 +166,8 @@ export function createUploadService({getSession,onCatalog,onProgress=()=>{},onAu
       if(descriptor.size!=null&&loaded!==descriptor.size)throw Error("Источник вернул неполный файл.");
       const item={id:destination.itemId,folderId:destination.folderId,name:descriptor.name,
         category:descriptor.category,mime:descriptor.mime,size:loaded,addedAt:new Date().toISOString(),
-        collectionId:destination.collection.id,chunks};
+        section:descriptor.section,collectionId:destination.collection.id,chunks};
+      if(destination.part){item.partId=destination.part.id;item.partName=destination.part.name;}
       if(descriptor.sourcePath)item.sourcePath=descriptor.sourcePath;
       if(descriptor.episode!=null)item.episode=descriptor.episode;
       if(Number.isSafeInteger(Number(descriptor.metadataId))&&Number(descriptor.metadataId)>0)

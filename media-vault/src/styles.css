@@ -562,3 +562,7 @@ button { border: 0; }
   .bottom-nav-item { padding-left:0;padding-right:0; }
   .nav-label { font-size:9px; }
 }
+
+.title-browser-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 20px}.title-browser-toolbar .import-tabs{margin:0;min-width:190px}.title-detail{margin:20px 0}.title-detail>.text-link{margin-bottom:20px}.title-part{margin:22px 0 30px}.title-part>.section-title{font-size:17px;margin-bottom:14px}.title-card .media-category{max-width:85%}.category-ranobe .category-art{filter:hue-rotate(36deg)}
+
+.upload-options{margin-top:12px;max-width:100%}.upload-options>summary{font-size:12px;color:var(--muted);cursor:pointer;padding:8px 0;line-height:1.7}.upload-options[open]>summary{color:var(--text)}.upload-options .local-upload-settings{margin-top:12px}

@@ -164,6 +164,30 @@ class VaultTests(unittest.TestCase):
         other.close()
         self.assertIsNone(other._key)
 
+    def test_nested_seasons_recover_without_losing_an_existing_season(self):
+        first = self.vault.upload_file(self.file(), collection="Наруто", section="anime", part="Сезон 1", season=1,
+                                       episode=1, source_identity="first-season")
+        self.drive.fail_patch = True
+        with self.assertRaises(vault_drive.RecoverableUploadError):
+            self.vault.upload_file(self.file("second.mp4"), collection="Наруто", section="anime", part="Сезон 2", season=2,
+                                   episode=1, source_identity="second-season")
+        self.drive.fail_patch = False
+        resumed = vault_drive.VaultDrive(self.drive, sleep=lambda _: None)
+        try:
+            resumed.unlock(self.library, PHRASE)
+            recovered = resumed.completed("second-season", collection="Наруто", episode=1)
+            catalog = resumed.refresh()
+            self.assertEqual(len(catalog["items"]), 2)
+            self.assertEqual(len(catalog["storage"]["collections"]), 1)
+            group = catalog["storage"]["collections"][0]
+            self.assertEqual([part["name"] for part in group["parts"]], ["Сезон 1", "Сезон 2"])
+            self.assertEqual(first["collectionId"], recovered["collectionId"])
+            self.assertNotEqual(first["partId"], recovered["partId"])
+            self.assertEqual(self.drive.files[group["folderId"]]["parents"], [catalog["storage"]["sectionFolders"]["anime"]])
+            self.assertEqual(self.drive.files[recovered["folderId"]]["parents"], [group["parts"][1]["folderId"]])
+        finally:
+            resumed.close()
+
     def test_real_chunks_folder_structure_and_existing_fields_preserved(self):
         self.mutate_remote(lambda catalog: catalog.update({
             "entries": [{"id": 52991, "title": "private saved metadata"}],
@@ -191,7 +215,7 @@ class VaultTests(unittest.TestCase):
         storage = catalog["storage"]
         media_id = storage["mediaFolders"]["video"]
         collection = storage["collections"][0]
-        self.assertEqual(self.drive.files[media_id]["name"], "video")
+        self.assertEqual(self.drive.files[media_id]["name"], "Видео")
         self.assertEqual(self.drive.files[collection["folderId"]]["parents"], [media_id])
         self.assertRegex(self.drive.files[collection["folderId"]]["name"], r"^collection-[0-9a-f-]{36}$")
         self.assertEqual(self.drive.files[item["folderId"]]["parents"], [collection["folderId"]])
