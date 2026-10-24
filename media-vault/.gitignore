@@ -4,3 +4,13 @@ dist/
 __pycache__/
 *.pyc
 test-output/
+deploy/oracle/.env
+deploy/oracle/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.key
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars

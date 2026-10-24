@@ -1,6 +1,6 @@
 # Использованные открытые библиотеки
 
-Собственные компоненты MediaVault вызывают эти библиотеки; платные сервисы и API аниме-каталогов не подключены.
+Собственные компоненты MediaVault вызывают эти библиотеки. Бесплатные API метаданных подключены без платных ключей; API видеосайтов не используются.
 
 | Библиотека | Назначение | Лицензия / исходники |
 |---|---|---|
@@ -14,7 +14,10 @@
 | requests | HTTP источников | Apache-2.0 · https://github.com/psf/requests |
 | cryptography | Совместимое с Web Crypto AES-GCM | Apache-2.0/BSD · https://github.com/pyca/cryptography |
 | google-api-python-client / google-auth | Авторизованный Drive владельца | Apache-2.0 · https://github.com/googleapis/google-api-python-client |
-| FFmpeg | Локальная сборка и проверка MP4 в Colab | LGPL/GPL зависит от сборки · https://ffmpeg.org/legal.html |
+| Beautiful Soup | Отдельные HTML-адаптеры сайтов | MIT · https://www.crummy.com/software/BeautifulSoup/ |
+| FastAPI / Uvicorn | Сервер очереди и авторизация | MIT / BSD · https://github.com/fastapi/fastapi · https://github.com/encode/uvicorn |
+| Caddy | Бесплатный HTTPS на своей VM | Apache-2.0 · https://github.com/caddyserver/caddy |
+| FFmpeg | Локальная сборка и проверка MP4 на сервере | LGPL/GPL зависит от сборки · https://ffmpeg.org/legal.html |
 | JSZip 3.10.1 | CBZ/ZIP | MIT/GPLv3 · https://github.com/Stuk/jszip |
 | EPUB.js 0.3.93 | Книги EPUB | BSD-2-Clause · https://github.com/futurepress/epub.js |
 

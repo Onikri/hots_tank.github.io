@@ -1,6 +1,8 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {motion,useReducedMotion} from 'motion/react';
 import ServerImport from './ServerImport.jsx';
+import {useImportService} from './import-service.js';
+import {safeImage} from './catalog.js';
 import LibrarySetup from './LibrarySetup.jsx';
 import TitleBrowser from './TitleBrowser.jsx';
 import {SECTION_LABELS,sectionForItem} from './library-model.js';
@@ -22,7 +24,7 @@ function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem(key)
 function writeLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
 function plural(n){return n%10===1&&n%100!==11?'материал':n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?'материала':'материалов';}
 
-function MediaCard({item,saved,onSave,onOpen,readWhole,vaultKey,displayName,detail,hideSave=false}){
+function MediaCard({item,saved,onSave,onOpen,readWhole,vaultKey,displayName,detail,hideSave=false,coverUrl}){
   const [cover,setCover]=useState('');
   const reduced=useReducedMotion();
   const card=useRef(null);
@@ -48,7 +50,7 @@ function MediaCard({item,saved,onSave,onOpen,readWhole,vaultKey,displayName,deta
   },[item.id,vaultKey,readWhole]);
   return <motion.article ref={card} className={'media-card'+(hideSave?' title-card':'')} data-title-name={hideSave?displayName:undefined} whileHover={reduced?undefined:{y:-3}} whileTap={reduced?undefined:{scale:.985}} layout>
     <button className="media-open" onClick={()=>onOpen(item)} aria-label={'Открыть '+(displayName||item.name)}>
-      <div className="media-cover">{cover?<img src={cover} alt="" loading="lazy"/>:<Artwork kind={item.category}/>}
+      <div className="media-cover">{cover||safeImage(coverUrl)?<img src={cover||safeImage(coverUrl)} alt="" loading="lazy" referrerPolicy="no-referrer"/>:<Artwork kind={item.category}/>}
         <span className="media-category">{hideSave?SECTION_LABELS[sectionForItem(item)]:labels[item.category]}</span>
         <span className="media-open-indicator"><Icon name={item.category==='video'?'video':item.category==='audio'?'audio':'book'} size={24}/></span>
       </div>
@@ -64,6 +66,7 @@ function EmptyState({icon='library',title,text,button,onClick}){
 
 export default function App(){
   const {state,actions}=useVault();
+  const importService=useImportService(state,actions);
   const reduced=useReducedMotion();
   const [view,setView]=useState('home');
   const [category,setCategory]=useState('all');
@@ -101,14 +104,14 @@ export default function App(){
     if(ok){setPassphrase('');setAgain('');setCategory('all');go('library');}
   }
   async function connect(){const ok=await actions.connectDrive();if(ok&&state.catalog)go('library');}
-  async function upload(event){const files=Array.from(event.target.files||[]);event.target.value='';if(files.length&&await actions.refreshCatalog())actions.uploadFiles(files,{collection:uploadCollection,section:uploadSection==='auto'?(category==='all'?undefined:category):uploadSection,part:uploadPart});}
+  async function upload(event){const files=Array.from(event.target.files||[]);event.target.value='';if(importService.active){actions.error(Error('Дождись завершения серверного импорта перед добавлением файлов.'));return;}if(files.length&&await actions.refreshCatalog())actions.uploadFiles(files,{collection:uploadCollection,section:uploadSection==='auto'?(category==='all'?undefined:category):uploadSection,part:uploadPart});}
   async function sendInvite(){if(await actions.invite(inviteEmail))setInviteEmail('');}
   function find(){go('library');setTimeout(()=>search.current?.focus(),50);}
   const filtered=useMemo(()=>items.filter(item=>(category==='all'||sectionForItem(item)===category)&&(!favoritesOnly||favorites.includes(item.id))&&[item.name,state.catalog?.storage?.collections?.find(group=>group.id===item.collectionId)?.name].join(' ').toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>sort==='name'?a.name.localeCompare(b.name,'ru'):(new Date(b.addedAt)-new Date(a.addedAt))),[state.catalog,category,query,favoritesOnly,favorites,sort]);
   const recent=history.map(entry=>({entry,item:items.find(item=>item.id===entry.id)})).filter(record=>record.item);
   const totalSize=items.reduce((sum,item)=>sum+item.size,0);
   const card=item=><MediaCard key={item.id} item={item} saved={favorites.includes(item.id)} onSave={save} onOpen={open} readWhole={actions.readWhole} vaultKey={state.key}/>;
-  const titleCard=(title,onOpen)=>{const cover=title.items.find(item=>item.category==='image')||title.items[0];return <MediaCard key={title.id} item={cover} displayName={title.name} detail={title.items.length+' '+plural(title.items.length)+' · '+formatSize(title.size)} hideSave onOpen={onOpen} readWhole={actions.readWhole} vaultKey={state.key}/>;};
+  const titleCard=(title,onOpen)=>{const cover=title.items.find(item=>item.category==='image')||title.items[0];return <MediaCard key={title.id} item={cover} coverUrl={title.metadata?.cover} displayName={title.name} detail={title.items.length+' '+plural(title.items.length)+' · '+formatSize(title.size)} hideSave onOpen={onOpen} readWhole={actions.readWhole} vaultKey={state.key}/>;};
 
   return <div className="app-shell">
     <header className="app-header"><div className="header-inner">
@@ -121,14 +124,14 @@ export default function App(){
         <div className="page-title-row"><div><p className="eyebrow">Личная коллекция</p><h1 className="page-title">Твоё пространство</h1></div><span className="status-pill"><Icon name="lock" size={13}/> Только для своих</span></div>
         <section className="spotlight"><div className="spotlight-copy"><span className="spotlight-label"><i/> ВСЁ, ЧТО ТЫ ЛЮБИШЬ</span><h2 className="spotlight-title">Ещё одна глава.<br/><em>Ещё один мир.</em></h2><p className="spotlight-desc">Аниме, манга, ранобэ и музыка.<br/>Твоя коллекция — всегда под рукой.</p><div className="spotlight-actions"><button className="btn btn-primary" onClick={()=>go(state.catalog?'library':'profile')}>{state.catalog?'К моей коллекции':'Открыть библиотеку'}<Icon name="arrow" size={18}/></button><span className="spotlight-note"><Icon name="lock" size={13}/> Личное остаётся личным</span></div></div><Artwork hero className="spotlight-art"/></section>
         {state.catalog&&recent.length>0&&<section><div className="section-heading"><h2 className="section-title">Недавно открытое</h2><button className="text-link" onClick={()=>go('history')}>Вся история<Icon name="chevron" size={15}/></button></div><div className="media-grid home-recent">{recent.slice(0,6).map(({item})=>card(item))}</div></section>}
-        <button className="server-import-banner" onClick={()=>go('import')}><span className="banner-icon"><Icon name="cloud" size={25}/></span><span><strong>Весь сезон — в твоём Drive</strong><small>Серверное скачивание и шифрование · Google Colab</small></span><Icon name="arrow" size={20}/></button>
+        <button className="server-import-banner" onClick={()=>go('import')}><span className="banner-icon"><Icon name="cloud" size={25}/></span><span><strong>Следующая история уже ждёт</strong><small>Мировые каталоги · Автоматический импорт в Drive</small></span><Icon name="arrow" size={20}/></button>
         <section><div className="section-heading"><div><h2 className="section-title">Что будем открывать?</h2><p className="page-subtitle">У каждой истории — свой формат</p></div></div><div className="category-grid">{sections.map(section=><button key={section.id} className={'category-card category-'+section.id} onClick={()=>selectCategory(section.id)}><div className="category-art"><Artwork kind={section.art}/></div><div className="category-meta"><span className="category-icon"><Icon name={section.icon} size={18}/></span><strong>{section.name}</strong><small>{section.formats}</small></div><Icon className="category-arrow" name="chevron" size={18}/></button>)}</div></section>
         {state.catalog&&items.length>0&&<section><div className="section-heading"><h2 className="section-title">Новое в коллекции</h2><button className="text-link" onClick={()=>{setCategory('all');go('library');}}>Смотреть всё<Icon name="chevron" size={15}/></button></div><div className="media-grid">{items.slice().reverse().slice(0,6).map(card)}</div></section>}
         <div className="benefit-grid"><div className="benefit-card"><span><Icon name="lock" size={22}/></span><div><h3>Только твой круг</h3><p>Коллекция доступна тебе и тем, кого ты пригласишь.</p></div></div><div className="benefit-card"><span><Icon name="cloud" size={22}/></span><div><h3>Всё на своём месте</h3><p>Личные файлы в твоём Google Drive. Чтение и просмотр — здесь.</p></div></div></div>
         <footer className="app-footer"><BrandMark/><span>MediaVault<span>Место для любимых историй</span></span><span className="footer-version">Твоя личная медиатека</span></footer>
       </>}
 
-      {view==='import'&&<ServerImport state={state} onConnect={()=>go('profile')} onRefresh={actions.refreshCatalog}/>}
+      {view==='import'&&<ServerImport state={state} service={importService} onConnect={()=>go('profile')}/>}
 
       {view==='library'&&<>
         <div className="page-title-row"><div><p className="eyebrow">Всё любимое — здесь</p><h1 className="page-title">Моя библиотека</h1><p className="page-subtitle"><span id="count">{items.length} файлов</span>{items.length>0?' · '+formatSize(totalSize):''}</p></div><Icon name="library" size={29}/></div>

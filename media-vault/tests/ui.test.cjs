@@ -38,6 +38,11 @@ async function run(){
     await context.route('https://accounts.google.com/**',route=>route.fulfill({contentType:'text/javascript',body:`window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken(){options.callback({access_token:'ui-test-token',expires_in:3600,scope:options.scope})}})}}};`}));
     await context.route('https://www.googleapis.com/**',route=>route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'},contentType:'application/json',body:JSON.stringify(route.request().url().includes('/userinfo')?{sub:'owner',email:OWNER,email_verified:true,given_name:'Owner'}:{files:[]})}));
     await context.route('https://cdn.jsdelivr.net/**',route=>route.fulfill({contentType:'text/javascript',body:''}));
+    await context.route(/https:\/\/(?:kitsu\.io|shikimori\.one|graphql\.anilist\.co|api\.jikan\.moe|api\.tvmaze\.com|www\.wikidata\.org)\//,route=>{
+      const url=new URL(route.request().url());
+      const body=url.hostname==='kitsu.io'?{data:[{id:'20',type:'anime',attributes:{canonicalTitle:'Naruto',titles:{en:'Naruto',ja_jp:'ナルト'},synopsis:'Test catalogue description',subtype:'TV',episodeCount:220,startDate:'2002-10-03',ageRating:'PG'}}]}:url.hostname==='graphql.anilist.co'?{data:{Page:{media:[]}}}:{data:[]};
+      return route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'},contentType:'application/json',body:JSON.stringify(body)});
+    });
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
     const response=await page.goto(base,{waitUntil:'domcontentloaded'});
@@ -65,8 +70,17 @@ async function run(){
     assert.ok((await page.locator('.chip-active').textContent()).includes('Избранное'));
     await noOverflow('Library');
     await nav.getByRole('button',{name:'Импорт',exact:true}).click();
-    await page.getByRole('heading',{name:'Добавить аниме',exact:true}).waitFor();
-    assert.equal(await page.locator('#importVideoBtn').isDisabled(),true,'Locked users cannot export an import job');
+    await page.getByRole('heading',{name:'Каталог и импорт',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Фильтры каталога',exact:true}).click();
+    await noOverflow('Catalogue filters');
+    await page.locator('#catalogSearch').fill('Наруто');
+    await page.getByRole('option').first().waitFor();
+    await page.locator('#catalogSearch').press('ArrowDown');
+    await page.locator('#catalogSearch').press('Enter');
+    await page.getByRole('heading',{name:'Naruto',exact:true}).waitFor();
+    assert.equal(await page.locator('#importVideoBtn').isDisabled(),true,'Locked users cannot start an import');
+    await noOverflow('Catalogue title detail');
+    await page.getByRole('button',{name:'К результатам поиска'}).click();
     await noOverflow('Server import');
     await page.screenshot({path:path.join(output,'import-'+width+'.png'),fullPage:true});
     await page.locator('#profileBtn').click();

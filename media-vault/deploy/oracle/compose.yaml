@@ -1,0 +1,32 @@
+services:
+  importer:
+    build: ../../server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PUBLIC_URL: https://${SERVER_NAME}
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    tmpfs:
+      - /tmp:size=2g,uid=1000,gid=1000,mode=1777
+    # Downloads use a disk volume, not the limited /tmp tmpfs.
+    working_dir: /app
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    stop_grace_period: 30s
+  https:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SERVER_NAME: ${SERVER_NAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [importer]
+volumes:
+  caddy_data:
+  caddy_config:

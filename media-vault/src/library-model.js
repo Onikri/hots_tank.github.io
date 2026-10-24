@@ -34,7 +34,7 @@ export function buildTitles(catalog,items=catalog?.items||[]){
     const group=collections.get(item.collectionId),section=sectionForItem(item);
     const id=group?.id||'file-'+item.id,key=section+':'+id;
     if(!result.has(key))result.set(key,{id:key,name:group?.name||item.name.replace(/\.[^.]+$/,''),
-      section,category:SECTION_FORMAT[section],items:[],parts:group?.parts||[],size:0,addedAt:item.addedAt});
+      section,category:SECTION_FORMAT[section],items:[],parts:group?.parts||[],metadata:group?.metadata||{},size:0,addedAt:item.addedAt});
     const title=result.get(key);title.items.push(item);title.size+=item.size||0;
     if(new Date(item.addedAt)>new Date(title.addedAt))title.addedAt=item.addedAt;
   }

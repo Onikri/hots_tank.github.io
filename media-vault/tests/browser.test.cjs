@@ -163,23 +163,51 @@ async function main() {
     for(const chunk of item.chunks) assert.ok(!files.get(chunk.fileId).data.includes(Buffer.from('Encrypted hello')),'Stored chunk is encrypted');
   }
   const textItem=catalog.items.find(item=>item.name==='private-note.txt');
-  // The import form must prepare control data without fetching any video on this device.
-  const sourceRequests=[];
+  // The automatic import sends only control data/key to the owner's server, never source bytes.
+  const sourceRequests=[],submitted=[];let fakeTask=null;
   owner.on('request',request=>{if(new URL(request.url()).hostname==='source.example.com')sourceRequests.push(request.url());});
+  await owner.route('https://import.example.com/**',async route=>{
+    const request=route.request(),url=new URL(request.url());
+    const respond=(data,status=200)=>route.fulfill({status,headers:cors,contentType:'application/json',body:JSON.stringify(data)});
+    if(request.method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
+    if(url.pathname==='/health')return respond({application:'MediaVault',version:4,origin:new URL(base).origin,oauthConfigured:true});
+    if(url.pathname==='/auth/session')return respond({token:'fixture-server-session',driveConnected:true,oauthConfigured:true});
+    if(url.pathname==='/jobs'&&request.method()==='POST'){
+      const body=request.postDataJSON();submitted.push(body);
+      fakeTask={id:'task-1',created:Date.now()/1000,status:'queued',progress:{title:body.job.collection,total:2,saved:0,phase:'queued'}};
+      return respond(fakeTask,202);
+    }
+    if(url.pathname==='/jobs/task-1/cancel'){fakeTask={...fakeTask,status:'cancelled'};return respond(fakeTask);}
+    if(url.pathname==='/jobs')return respond({jobs:fakeTask?[fakeTask]:[]});
+    if(url.pathname==='/sources/inspect')return respond({provider:'fixture',dubs:[],seasons:[],releases:[],episodes:[{number:1,url:'https://source.example.com/episode-1'},{number:3,url:'https://source.example.com/episode-3'}]});
+    if(url.pathname.startsWith('/metadata/'))return respond({data:[]});
+    return respond({detail:'Not found'},404);
+  });
   await owner.getByRole('navigation',{name:'Мобильная навигация'}).getByRole('button',{name:'Импорт',exact:true}).click();
+  await owner.locator('.server-settings > summary').click();
+  await owner.locator('#importServer').fill('https://import.example.com');
+  await owner.locator('.server-address-form').getByRole('button',{name:'Подключить',exact:true}).click();
+  await owner.getByText('Drive подключён',{exact:true}).waitFor();
+  await owner.getByRole('tab',{name:'По ссылке',exact:true}).click();
   await owner.locator('#streamUrl').fill('https://source.example.com/season');
+  await owner.getByRole('button',{name:'Проверить',exact:true}).click();
+  await owner.getByText('Найдено опубликованных файлов: 2.',{exact:false}).waitFor();
   await owner.locator('#serverCollection').fill('Мой сезон');
-  await owner.locator('#serverEpisodes').fill('1-12');
+  await owner.getByRole('button',{name:'Диапазон',exact:true}).click();
+  await owner.getByRole('spinbutton',{name:'Первая серия',exact:true}).fill('1');
+  await owner.getByRole('spinbutton',{name:'Последняя серия',exact:true}).fill('3');
   await owner.locator('#importVideoBtn').click();
-  const serverJob=JSON.parse(await owner.locator('#serverJob').inputValue());
-  assert.deepEqual(serverJob,{version:1,library_id:catalogId,sources:['https://source.example.com/season'],collection:'Мой сезон',season:1,episodes:'1-12',quality:'720',resume:true});
-  assert.ok(!JSON.stringify(serverJob).includes(PHRASE));
-  assert.ok(!JSON.stringify(serverJob).includes(OWNER));
-  assert.ok((await owner.locator('#openColab').getAttribute('href')).includes('notebooks/MediaVault_Server_Import.ipynb'));
-  assert.deepEqual(sourceRequests,[],'Preparing server import never fetches source HTML, playlists or video on the device');
-  await owner.getByRole('button',{name:'Закрыть',exact:true}).click();
-  await owner.locator('#refreshAfterImport').click();
-  await owner.getByText('Библиотека обновлена.',{exact:true}).waitFor();
+  await owner.getByRole('heading',{name:'Очередь импорта',exact:true}).waitFor();
+  assert.equal(submitted.length,1);
+  const serverJob=submitted[0].job;
+  assert.equal(serverJob.version,2);assert.equal(serverJob.library_id,catalogId);assert.equal(serverJob.episodes,'1-3');
+  assert.deepEqual(serverJob.entries.map(e=>e.number),[1,3]);
+  assert.ok(!JSON.stringify(serverJob).includes(PHRASE));assert.ok(!JSON.stringify(serverJob).includes(OWNER));
+  assert.equal(Buffer.from(submitted[0].vault_key,'base64').length,32,'Only the derived encryption key goes to the configured owner server');
+  assert.deepEqual(sourceRequests,[],'The device never fetches source HTML, playlists or video during import');
+  assert.equal(await owner.locator('#openColab').count(),0,'No manual notebook hand-off remains');
+  await owner.getByRole('button',{name:'Остановить после файла'}).click();
+  await owner.getByText('Остановлено',{exact:true}).waitFor();
   await owner.locator('#libraryNav').click();
   await owner.waitForFunction(()=>document.querySelectorAll('.media-card').length===3);
   const delayedPattern='**/drive/v3/files/'+textItem.chunks[0].fileId+'?alt=media';
@@ -398,7 +426,7 @@ async function main() {
   const ranobeTitle=organized.storage.collections.find(group=>group.name==='Наруто'&&group.section==='ranobe');
   assert.equal(animeTitle.parts.length,2);assert.notEqual(animeTitle.folderId,mangaTitle.folderId);assert.notEqual(mangaTitle.folderId,ranobeTitle.folderId);
   assert.deepEqual(files.get(animeTitle.folderId).parents,[organized.storage.sectionFolders.anime]);
-  console.log('PASS: React production build; mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; server job without video transfer or credential export; catalog refresh; mobile viewer/abort/Escape; MP4 stream/fallback/seek; search/category/name sort/favorites/history; phrase unlock; token reconnect; stopped worker recovery; reader scopes and UI without writes.');
+  console.log('PASS: React production build; mocked Google login; encrypted catalog/TXT/PNG/MP4 upload; automatic server job without device video traffic or phrase export; catalog refresh; mobile viewer/abort/Escape; MP4 stream/fallback/seek; search/category/name sort/favorites/history; phrase unlock; token reconnect; stopped worker recovery; reader scopes and UI without writes.');
   console.log('Screenshot: '+path.join(temp,'mobile-owner.png'));
   console.log('Live Google OAuth, real Drive ACL and physical Android/iOS playback remain outside this test.');
 }

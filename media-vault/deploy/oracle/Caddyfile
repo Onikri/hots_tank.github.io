@@ -1,0 +1,12 @@
+{$SERVER_NAME} {
+    encode zstd gzip
+    request_body {
+        max_size 512KB
+    }
+    reverse_proxy importer:7860
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+    }
+}

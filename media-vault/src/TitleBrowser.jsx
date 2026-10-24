@@ -13,6 +13,8 @@ export default function TitleBrowser({catalog,items,sort,renderFile,renderTitle}
     {mode==='files'?<div id="libraryGrid" className="media-grid">{items.map(renderFile)}</div>:current?<section className="title-detail">
       <button id="backToTitles" className="text-link" onClick={()=>setSelected(null)}><Icon name="back" size={16}/>Все тайтлы</button>
       <div className="section-heading"><div><p className="eyebrow">{SECTION_LABELS[current.section]}</p><h2 className="section-title">{current.name}</h2><p className="fine">Отдельная папка тайтла · {current.items.length} файлов</p></div></div>
+      {current.metadata?.description&&<p className="detail-description">{current.metadata.description}</p>}
+      <div className="detail-genres">{(current.metadata?.genres||[]).map(genre=><span key={genre}>{genre}</span>)}{current.metadata?.ageLabel&&<span>{current.metadata.ageLabel}</span>}{current.metadata?.year&&<span>{current.metadata.year}</span>}</div>
       {titleParts(current).map(part=><section className="title-part" key={part.name}><h3 className="section-title">{part.name}</h3><div className="media-grid">{part.items.map(renderFile)}</div></section>)}
     </section>:<div id="libraryGrid" className="media-grid">{titles.map(title=>renderTitle(title,()=>setSelected(title.id)))}</div>}
   </>;

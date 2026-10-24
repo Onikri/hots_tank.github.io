@@ -324,6 +324,18 @@ class VaultDrive:
         self._manifest_cache = None
         return self.library_id
 
+    def unlock_key(self, library_id, key):
+        """Open a server task with the derived key; the phrase is never transmitted."""
+        if not isinstance(key, bytes) or len(key) != 32:
+            raise VaultError("Invalid vault key.")
+        envelope, metadata = self._read_raw(library_id)
+        if metadata.get("ownedByMe") is False or metadata.get("capabilities", {}).get("canEdit") is False:
+            raise VaultError("The owner account must be able to edit this catalog.")
+        catalog = open_catalog(envelope, key)
+        self.library_id, self.catalog, self._key, self._salt = str(library_id), catalog, key, _unb64(envelope["salt"])
+        self._manifest_cache = None
+        return self.library_id
+
     def _latest(self):
         if not self.library_id or self._key is None:
             raise VaultError("Initialize or unlock the library first.")
@@ -362,6 +374,8 @@ class VaultDrive:
             else:
                 if incoming.get("section"):
                     existing.setdefault("section", incoming["section"])
+                if incoming.get("metadata"):
+                    existing["metadata"] = {**existing.get("metadata", {}), **copy.deepcopy(incoming["metadata"])}
                 parts = existing.setdefault("parts", [])
                 part_ids = {part["id"] for part in parts}
                 parts.extend(copy.deepcopy(part) for part in incoming.get("parts", []) if part["id"] not in part_ids)
@@ -473,7 +487,7 @@ class VaultDrive:
 
     def upload_file(self, path, *, name=None, category="video", collection="Без коллекции",
                     episode=None, source_identity=None, mime=None, metadata_id=None, progress=None,
-                    section=None, part="", season=None):
+                    section=None, part="", season=None, metadata=None, dub=""):
         if category not in CATEGORIES:
             raise VaultError("Unsupported media category.")
         file_path = Path(path)
@@ -492,6 +506,11 @@ class VaultDrive:
                 return existing
         catalog, _ = self._latest()
         item_id, asset_id, collection_id, storage, selected_part = self._folders(catalog, category, collection, section, part)
+        if metadata:
+            if not isinstance(metadata, dict) or len(_json(metadata)) > 100000:
+                raise VaultError("Invalid title metadata.")
+            group = next(entry for entry in storage["collections"] if entry["id"] == collection_id)
+            group["metadata"] = copy.deepcopy(metadata)
         checkpoint_written = False
         try:
             chunks, loaded, content_hash = [], 0, hashlib.sha256()
@@ -518,6 +537,8 @@ class VaultDrive:
                 item.update({"partId": selected_part["id"], "partName": selected_part["name"]})
             if season is not None:
                 item["season"] = season
+            if dub:
+                item["dub"] = str(dub)[:120]
             if episode is not None:
                 item["episode"] = episode
             if metadata_id is not None:

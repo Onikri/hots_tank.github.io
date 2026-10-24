@@ -1,0 +1,15 @@
+#cloud-config
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - docker.io
+  - docker-compose-v2
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [bash, -lc, "git clone --filter=blob:none --sparse --depth 1 https://github.com/Onikri/hots_tank.github.io.git /opt/mediavault && cd /opt/mediavault && git sparse-checkout set media-vault"]
+  - [bash, -lc, "install -d -o 1000 -g 1000 -m 700 /opt/mediavault/media-vault/deploy/oracle/data /opt/mediavault/media-vault/deploy/oracle/data/temporary"]
+  - [bash, -lc, "install -m 600 /opt/mediavault/media-vault/deploy/oracle/.env.example /opt/mediavault/media-vault/deploy/oracle/.env"]
+# Deployment starts only after the private OAuth secret and HTTPS host are set.
+# No paid-plan changes, artificial load, service-account keys or Google tokens.

@@ -14,10 +14,16 @@ export function base64ToBytes(s) {
 }
 export function newSalt() { return crypto.getRandomValues(new Uint8Array(16)); }
 export async function deriveVaultKey(passphrase, salt) {
+  const material=await deriveVaultMaterial(passphrase,salt);
+  material.serverKey.fill(0);
+  return material.key;
+}
+export async function deriveVaultMaterial(passphrase, salt) {
   if (!passphrase || passphrase.length < 12) throw Error("Секретная фраза должна содержать не менее 12 символов.");
-  const raw = await crypto.subtle.importKey("raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:310000,hash:"SHA-256"},raw,
-    {name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+  const raw = await crypto.subtle.importKey("raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveBits"]);
+  const serverKey=new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:310000,hash:"SHA-256"},raw,256));
+  const key=await crypto.subtle.importKey("raw",serverKey,{name:"AES-GCM"},false,["encrypt","decrypt"]);
+  return {key,serverKey};
 }
 export async function sealChunk(raw, key, id, index) {
   const iv = crypto.getRandomValues(new Uint8Array(12));

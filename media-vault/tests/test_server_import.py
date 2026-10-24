@@ -211,6 +211,14 @@ unavailable.m3u8
             self.assertEqual(len(catalog['storage']['collections']), 1)
             self.assertEqual([part['name'] for part in catalog['storage']['collections'][0]['parts']], ['Сезон 1', 'Сезон 2'])
             self.assertEqual([item['season'] for item in catalog['items']], [1, 2])
+            metadata={'title':'Тестовый сезон','cover':'https://images.example.com/poster.jpg','description':'Private title description','genres':['Action'],'age':13}
+            fourth=run_job({**job,'version':2,'season':3,'section':'anime','metadata':metadata,'dub':'Fixture Studio',
+                            'entries':[{'number':1,'url':'https://example.com/episode-1','season':3}]},vault,resolver=resolver,log=logs.append)
+            self.assertEqual(fourth['saved'],1)
+            catalog=vault.refresh()
+            self.assertEqual(catalog['storage']['collections'][0]['metadata'],metadata)
+            self.assertEqual(catalog['items'][-1]['dub'],'Fixture Studio')
+            self.assertNotIn(b'Private title description',drive.download(library))
         finally:
             vault.close()
 

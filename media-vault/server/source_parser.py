@@ -89,9 +89,10 @@ def playback_headers(headers=None):
 
 
 class PublicHttp:
-    def __init__(self, *, session=None, validate=public_url):
+    def __init__(self, *, session=None, validate=public_url, timeout=(20, 45)):
         self.session = session or requests.Session()
         self.validate = validate
+        self.timeout = timeout
         # Session is source-only and is never shared with Google Drive.
         self.session.headers.clear()
 
@@ -116,7 +117,7 @@ class PublicHttp:
                 # Clear cookies collected by previous HTML pages, including redirects.
                 self.session.cookies.clear()
                 response = self.session.request(method, url, headers=outgoing, data=data,
-                                                timeout=(20, 45), allow_redirects=False, stream=True)
+                                                timeout=self.timeout, allow_redirects=False, stream=True)
             except requests.RequestException:
                 raise SourceError("Источник не ответил. Повтори импорт позднее.") from None
             if response.status_code in {301, 302, 303, 307, 308}:
