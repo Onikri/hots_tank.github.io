@@ -25,19 +25,29 @@ class AccessError(RuntimeError):
     pass
 
 
-def command(arguments, region):
+def command(arguments, region, *, empty_list=False):
     try:
-        result = subprocess.run(["oci", "--region", region, "--output", "json", *arguments],
+        # Identity query prevents a user CLI default from projecting away data.
+        result = subprocess.run(["oci", "--region", region, "--output", "json", "--query", "@", *arguments],
                                 capture_output=True, text=True, timeout=90, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise AccessError("OCI CLI не ответил. Открой новую сессию Cloud Shell.") from None
     if result.returncode:
         match = re.search(r'"code"\s*:\s*"([a-zA-Z0-9_-]{1,80})"', result.stderr)
         raise AccessError("Oracle отклонил запрос: " + (match[1] if match else "ошибка доступа") + ". Существующие ключи не изменялись.")
+    # OCI CLI's render() omits an empty data list instead of printing {data:[]}.
+    # Accept that only for the known list operation, after a successful exit.
+    # Never turn a missing mutation response or a CLI error into success.
+    if empty_list and not result.stdout.strip():
+        return []
     try:
-        return json.loads(result.stdout)["data"]
+        payload = json.loads(result.stdout)
+        if empty_list and payload == {}:
+            return []
+        return payload["data"]
     except (ValueError, KeyError, TypeError):
-        raise AccessError("Неизвестный ответ Oracle. Не повторяй команду вслепую: проверь API Keys своего пользователя.") from None
+        operation = " ".join(arguments[:4])
+        raise AccessError("Неизвестный ответ Oracle на шаге " + operation + ". Не повторяй команду вслепую: проверь API Keys своего пользователя.") from None
 
 
 def connect(encoded_key):
@@ -73,15 +83,15 @@ def connect(encoded_key):
     if len(homes) != 1 or not homes[0]:
         raise AccessError("Домашний регион не определён. Доступ не добавлен.")
     region = homes[0]
-    keys = command(["iam", "user", "api-key", "list", "--user-id", user, "--all"], region)
-    if not isinstance(keys, list):
+    keys = command(["iam", "user", "api-key", "list", "--user-id", user, "--all"], region, empty_list=True)
+    if not isinstance(keys, list) or any(not isinstance(entry, dict) or not isinstance(entry.get("fingerprint"), str) for entry in keys):
         raise AccessError("Oracle не вернул список API Keys. Доступ не добавлен.")
     existing = any(entry.get("fingerprint") == fingerprint for entry in keys)
     if not existing:
         if len(keys) >= 3:
             raise AccessError("У пользователя уже три API Keys. Существующие ключи не удаляются и не заменяются.")
         created = command(["iam", "user", "api-key", "upload", "--user-id", user, "--key", pem], region)
-        if created.get("fingerprint") != fingerprint:
+        if not isinstance(created, dict) or created.get("fingerprint") != fingerprint:
             raise AccessError("Отпечаток ответа отличается от ожидаемого. Проверь API Keys в консоли.")
     return {"tenancy": tenancy, "user": user, "region": region, "fingerprint": fingerprint,
             "public_identifiers_only": True, "already_registered": existing,

@@ -35,7 +35,8 @@ class AccessTests(unittest.TestCase):
 
     def responses(self,keys):
         def run(command,**options):
-            operation = tuple(command[5:9])
+            self.assertEqual(command[5:7],['--query','@'])
+            operation = tuple(command[7:11])
             if operation[:3] == ('iam','region-subscription','list'):
                 data=[{'is-home-region':True,'region-name':'eu-frankfurt-1'}]
             elif operation == ('iam','user','api-key','list'):
@@ -75,6 +76,41 @@ class AccessTests(unittest.TestCase):
         with patch.dict(os.environ,{'OCI_CS_USER_OCID':'ocid1.user.oc1..other'}),patch.object(access.shutil,'which',return_value='/bin/oci'),patch.object(access.subprocess,'run') as run:
             with self.assertRaises(access.AccessError):access.connect(self.encoded)
         run.assert_not_called()
+
+    def test_empty_api_key_list_without_stdout_is_a_successful_empty_list(self):
+        normal=self.responses([])
+        for output in ['', '  \n', '{}']:
+            def run(command,**options):
+                if command[7:11] == ['iam','user','api-key','list']:
+                    return subprocess.CompletedProcess(command,0,output,'')
+                return normal(command,**options)
+            with self.subTest(output=repr(output)),patch.object(access.shutil,'which',return_value='/bin/oci'),patch.object(access.subprocess,'run',side_effect=run) as calls:
+                result=access.connect(self.encoded)
+                self.assertFalse(result['already_registered'])
+                self.assertEqual(result['fingerprint'],self.fingerprint)
+                self.assertEqual(calls.call_count,3)
+
+    def test_empty_or_invalid_mutation_response_never_reports_success(self):
+        for output in ['', '{}', 'not-json', '{"data":null}']:
+            normal=self.responses([])
+            def run(command,**options):
+                if command[7:11] == ['iam','user','api-key','upload']:
+                    return subprocess.CompletedProcess(command,0,output,'')
+                return normal(command,**options)
+            with self.subTest(output=repr(output)),patch.object(access.shutil,'which',return_value='/bin/oci'),patch.object(access.subprocess,'run',side_effect=run):
+                with self.assertRaises(access.AccessError):access.connect(self.encoded)
+
+    def test_failed_empty_key_list_never_proceeds_to_upload_or_leaks_diagnostics(self):
+        normal=self.responses([])
+        def run(command,**options):
+            if command[7:11] == ['iam','user','api-key','list']:
+                return subprocess.CompletedProcess(command,1,'','Authorization: fixture-secret\n{"code":"NotAuthorizedOrNotFound"}')
+            return normal(command,**options)
+        with patch.object(access.shutil,'which',return_value='/bin/oci'),patch.object(access.subprocess,'run',side_effect=run) as calls:
+            with self.assertRaises(access.AccessError) as caught:access.connect(self.encoded)
+        self.assertEqual(calls.call_count,2)
+        self.assertNotIn('fixture-secret',str(caught.exception))
+        self.assertIn('NotAuthorizedOrNotFound',str(caught.exception))
 
 
 if __name__=='__main__':unittest.main()
