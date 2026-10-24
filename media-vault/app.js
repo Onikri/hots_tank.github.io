@@ -277,7 +277,8 @@ async function lazyThumbnail(item,cover){
   }catch(e){console.debug("Предпросмотр недоступен",e.message);}
 }
 async function lazyVideoThumbnail(item,cover){
-  if(!cover.isConnected||!state.token||!state.key||item.mime!=="video/mp4")return;
+  if(!cover.isConnected||!state.token||!state.key||
+    !["video/mp4","video/webm"].includes(item.mime))return;
   let url=thumbUrls.get(item.id);
   if(url){
     const cached=document.createElement("img");cached.alt="Превью видео";cached.src=url;cover.append(cached);return;
@@ -288,14 +289,36 @@ async function lazyVideoThumbnail(item,cover){
   player.muted=true;player.playsInline=true;player.preload="auto";
   player.src=new URL("./__media__/"+encodeURIComponent(item.id),location.href).href;
   try{
+    // Most anime files start with a black frame. Capture a stable frame a few seconds in.
     await new Promise((resolve,reject)=>{
-      const timeout=setTimeout(()=>finish(Error("Истёк таймаут предпросмотра")),9500);
-      const clean=()=>{clearTimeout(timeout);player.removeEventListener("loadeddata",ready);player.removeEventListener("error",failed);};
-      const finish=error=>{clean();if(error)reject(error);else resolve();};
-      const ready=()=>finish();
-      const failed=()=>finish(Error("Не удалось получить кадр"));
-      player.addEventListener("loadeddata",ready,{once:true});
-      player.addEventListener("error",failed,{once:true});
+      let finished=false,metadata=false,frameReady=false,seeked=false;
+      const finish=e=>{
+        if(finished)return;finished=true;clean();e?reject(e):resolve();
+      };
+      const timeout=setTimeout(()=>finish(Error("Предпросмотр не ответил")),12500);
+      const clean=()=>{
+        clearTimeout(timeout);
+        player.removeEventListener("loadedmetadata",onMetadata);
+        player.removeEventListener("loadeddata",onReady);
+        player.removeEventListener("seeked",onSeeked);
+        player.removeEventListener("error",onError);
+      };
+      const onError=()=>finish(Error("Не удалось получить кадр из видео"));
+      const onSeeked=()=>{seeked=true;if(frameReady)finish();};
+      const onMetadata=()=>{
+        metadata=true;
+        const duration=player.duration;
+        if(Number.isFinite(duration)&&duration>2){
+          try{player.currentTime=Math.min(6,Math.max(1,duration*.15),duration-.25);}
+          catch{seeked=true;}
+        }else seeked=true;
+        if(frameReady&&seeked)finish();
+      };
+      const onReady=()=>{frameReady=true;if(!metadata||seeked)finish();};
+      player.addEventListener("loadedmetadata",onMetadata);
+      player.addEventListener("loadeddata",onReady);
+      player.addEventListener("seeked",onSeeked);
+      player.addEventListener("error",onError);
       player.load();
     });
     if(!cover.isConnected||!state.key||!player.videoWidth||!player.videoHeight)return;
@@ -304,10 +327,13 @@ async function lazyVideoThumbnail(item,cover){
     const ratio=Math.max(canvas.width/player.videoWidth,canvas.height/player.videoHeight);
     const w=player.videoWidth*ratio,h=player.videoHeight*ratio;
     canvas.getContext("2d").drawImage(player,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.72));
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.8));
     if(!blob||!cover.isConnected)return;
     url=URL.createObjectURL(blob);thumbUrls.set(item.id,url);
     const img=document.createElement("img");img.alt="Превью видео";img.loading="lazy";img.src=url;cover.append(img);
+  }catch(e){
+    // A failed thumbnail must never block opening the encrypted file.
+    console.debug("Видеопревью недоступно:",e.message);
   }finally{player.pause();player.removeAttribute("src");player.load();}
 }
 function formatSize(n){return n>=1024*1024*1024?(n/1024**3).toFixed(2)+" ГБ":

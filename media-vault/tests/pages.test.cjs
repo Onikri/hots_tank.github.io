@@ -62,6 +62,17 @@ async function main(){
     await page.locator("#importValue").fill("https://animelib.me/ru/anime/fullmetal-alchemist-brotherhood");
     await page.getByRole("button",{name:"Найти карточку"}).click();
     await page.getByText("Результаты поиска").waitFor();
+    await page.route("https://api.yani.tv/**",async route=>{
+      const u=new URL(route.request().url());
+      const response=u.pathname.endsWith("/videos")?
+        {response:{videos:[{id:7,name:"Официальный список",episodes:[{number:1,title:"Серия 1"}]}]}}:
+        {response:{anime:{id:42,title:{ru:"Тестовый тайтл"},episodes_count:1}}};
+      await route.fulfill({status:200,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify(response)});
+    });
+    await page.locator(".yummy-panel input").first().fill("https://ru.yummyani.me/catalog/item/demo");
+    await page.locator(".yummy-panel input").nth(1).fill("app-token-for-test");
+    await page.locator(".yummy-panel button[type=submit]").click();
+    await page.getByText("Официальный список").waitFor();
     await page.goto(base+"#/upload",{waitUntil:"domcontentloaded"});
     await page.getByRole("heading",{name:"Загрузка файлов"}).waitFor();
     await page.getByText(/Сначала подключи библиотеку/).waitFor();

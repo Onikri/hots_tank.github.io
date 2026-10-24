@@ -1,10 +1,11 @@
-import React,{useState} from "react";
+import React,{useState,useEffect} from "react";
 import {Film,Link2,KeyRound,ExternalLink,AlertTriangle,Search} from "lucide-react";
 import {getYummyAnime} from "./yummy-api.js";
 export default function YummyPanel({initialUrl=""}){
  const [url,setUrl]=useState(initialUrl||"");
  const [token,setToken]=useState(()=>sessionStorage.getItem("mediavault-yummy-app")||"");
  const [result,setResult]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ useEffect(()=>{if(initialUrl)setUrl(initialUrl);},[initialUrl]);
  async function load(event){
   event.preventDefault();setError("");setResult(null);setBusy(true);
   try{
