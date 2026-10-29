@@ -89,6 +89,12 @@ jobs:
           test -f site/media-vault/sw.js
           test -d site/media-vault/assets
 
+      - name: Include standalone DepthFlow LDI Studio
+        run: |
+          mkdir -p site/depthflow
+          cp depthflow/index.html depthflow/style.css depthflow/app.js site/depthflow/
+          test -s site/depthflow/index.html
+
       - name: Verify local HTML and asset links
         run: node scripts/check-static-links.mjs site
 
