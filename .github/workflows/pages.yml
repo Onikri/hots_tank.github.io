@@ -95,6 +95,13 @@ jobs:
           cp depthflow/index.html depthflow/style.css depthflow/app.js site/depthflow/
           test -s site/depthflow/index.html
 
+      - name: Include DepthFlow LDI Studio in the published site
+        run: |
+          mkdir -p site/depthflow
+          rsync -a --delete depthflow/ site/depthflow/
+          test -f site/depthflow/index.html
+          test -f site/depthflow/app.js
+
       - name: Verify local HTML and asset links
         run: node scripts/check-static-links.mjs site
 
